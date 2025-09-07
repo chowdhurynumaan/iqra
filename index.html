@@ -163,11 +163,10 @@
                 userId = auth.currentUser.uid;
                 document.getElementById('user-id').textContent = userId;
                 
-                // Fetch students and reports from Firestore
-                await fetchInitialData();
+                // Set up real-time listeners for students and reports
+                setupListeners();
 
                 setupSidebarListeners();
-                renderStudentCards();
                 document.getElementById('report-form').addEventListener('submit', handleSaveReport);
                 document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
                 document.getElementById('print-button').addEventListener('click', generatePrintView);
@@ -184,22 +183,26 @@
             }
         };
 
-        const fetchInitialData = async () => {
-             // Fetch all students
+        const setupListeners = () => {
+             // Listener for Students
             const studentsRef = collection(db, `artifacts/${appId}/users/${userId}/students`);
-            const studentsSnapshot = await getDocs(studentsRef);
-            students = studentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            onSnapshot(studentsRef, (snapshot) => {
+                students = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderStudentCards();
+            });
 
-            // Fetch all reports
+            // Listener for Reports
             const reportsRef = collection(db, `artifacts/${appId}/users/${userId}/reports`);
-            const reportsSnapshot = await getDocs(reportsRef);
-            reportsByStudentId = {};
-            reportsSnapshot.docs.forEach(doc => {
-                const report = doc.data();
-                if (!reportsByStudentId[report.studentId]) {
-                    reportsByStudentId[report.studentId] = {};
-                }
-                reportsByStudentId[report.studentId][report.date] = report;
+            onSnapshot(reportsRef, (snapshot) => {
+                reportsByStudentId = {};
+                snapshot.docs.forEach(doc => {
+                    const report = doc.data();
+                    if (!reportsByStudentId[report.studentId]) {
+                        reportsByStudentId[report.studentId] = {};
+                    }
+                    reportsByStudentId[report.studentId][report.date] = report;
+                });
+                renderStudentCards();
             });
         };
         
