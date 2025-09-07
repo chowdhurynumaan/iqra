@@ -6,12 +6,15 @@
     <title>Student Daily Report</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
+        // Firebase imports
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, onSnapshot, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        setLogLevel('debug'); // Enable debug logging for Firestore
+        import { getFirestore, collection, addDoc, getDocs, onSnapshot, doc, updateDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Enable debug logging for Firestore
+        setLogLevel('debug'); 
 
+        // Global variables provided by the Canvas environment
         const providedFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const appId = typeof __app_id !== 'undefined' ? __app_id : providedFirebaseConfig.projectId || 'default-app-id';
 
@@ -34,6 +37,7 @@
             }
         };
 
+        // Initialize Firebase and set up authentication
         const initializeFirebase = async (config) => {
             try {
                 if (Object.keys(config).length === 0 || !config.projectId) {
@@ -43,6 +47,7 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
+                // Sign in with the provided custom token or anonymously if not available
                 if (typeof __initial_auth_token !== 'undefined') {
                     await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
@@ -52,13 +57,16 @@
                 userId = auth.currentUser?.uid || crypto.randomUUID();
                 document.getElementById('user-id').textContent = userId;
 
+                // Set up real-time listeners for students and daily reports
                 setupStudentsListener();
                 setupReportsListener();
                 
+                // Add event listeners for form submissions and buttons
                 document.getElementById('report-form').addEventListener('submit', handleSaveReport);
                 document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
                 document.getElementById('print-button').addEventListener('click', generatePrintView);
 
+                // Populate mock data if no students exist to provide a starting point
                 await populateMockData();
                 setLoading(false); // Hide loading on success
                 document.getElementById('status-message').textContent = 'App loaded and connected to the database.';
@@ -70,6 +78,7 @@
             }
         };
 
+        // Initialize the app on window load
         window.onload = async () => {
             setLoading(true, 'Connecting to the database...');
             const dateElement = document.getElementById('current-date');
@@ -79,9 +88,11 @@
             await initializeFirebase(providedFirebaseConfig);
         };
         
+        // Set up a real-time listener for the 'students' collection
         const setupStudentsListener = () => {
             const studentsRef = collection(db, "artifacts", appId, "users", userId, "students");
             onSnapshot(studentsRef, (querySnapshot) => {
+                // Update the local students array with the latest data
                 students = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderStudentTable();
             }, (error) => {
@@ -90,15 +101,18 @@
             });
         };
 
+        // Set up a real-time listener for the 'dailyReports' collection
         const setupReportsListener = () => {
             const reportsRef = collection(db, "artifacts", appId, "users", userId, "dailyReports");
             onSnapshot(reportsRef, (querySnapshot) => {
+                // Process document changes (added, modified, removed)
                 querySnapshot.docChanges().forEach((change) => {
                     const report = { id: change.doc.id, ...change.doc.data() };
                     if (change.type === "added" || change.type === "modified") {
                         if (!reportsByStudentId[report.studentId]) {
                             reportsByStudentId[report.studentId] = {};
                         }
+                        // Store reports keyed by studentId and date
                         reportsByStudentId[report.studentId][report.date] = report;
                     } else if (change.type === "removed") {
                         if (reportsByStudentId[report.studentId]) {
@@ -113,6 +127,7 @@
             });
         };
 
+        // Render the student table with input fields for daily reports
         const renderStudentTable = () => {
             const tbody = document.getElementById('report-body');
             tbody.innerHTML = '';
@@ -124,6 +139,7 @@
             }
 
             students.forEach(student => {
+                // Get the report for today if it exists, otherwise use an empty object
                 const report = reportsByStudentId[student.id] && reportsByStudentId[student.id][today] ? reportsByStudentId[student.id][today] : {};
 
                 const row = document.createElement('tr');
@@ -160,6 +176,7 @@
                 tbody.appendChild(row);
             });
 
+            // Add event listeners to the star rating system
             document.querySelectorAll('.flex[data-type="behavior"] span').forEach(star => {
                 star.addEventListener('click', (event) => {
                     const studentId = event.target.closest('[data-student-id]').dataset.studentId;
@@ -172,6 +189,7 @@
                             s.classList.remove('text-yellow-400');
                         }
                     });
+                    // Create a hidden input to store the star rating value
                     let hiddenInput = document.querySelector(`input[name="behavior"][data-student-id="${studentId}"]`);
                     if (!hiddenInput) {
                         hiddenInput = document.createElement('input');
@@ -185,6 +203,7 @@
             });
         };
 
+        // Handle saving all student reports to Firestore
         const handleSaveReport = async (event) => {
             event.preventDefault();
             const form = event.target;
@@ -206,6 +225,7 @@
                     
                     const existingReport = reportsByStudentId[student.id] && reportsByStudentId[student.id][today];
 
+                    // Check if a report for today already exists to decide between update or add
                     if (existingReport) {
                         const reportRef = doc(db, "artifacts", appId, "users", userId, "dailyReports", existingReport.id);
                         await updateDoc(reportRef, report);
@@ -221,6 +241,7 @@
             }
         };
 
+        // Handle adding a new student to Firestore
         const handleAddStudent = async (event) => {
             event.preventDefault();
             const form = event.target;
@@ -231,6 +252,7 @@
                 RN: form.querySelector('[name="studentRN"]').value,
             };
 
+            // Basic validation
             if (!studentData.name || !studentData.RG || !studentData.LN || !studentData.RN) {
                 document.getElementById('student-add-status').textContent = 'Please fill out all fields.';
                 return;
@@ -247,6 +269,7 @@
             }
         };
 
+        // Add mock data if the students collection is empty
         const populateMockData = async () => {
             const studentsRef = collection(db, "artifacts", appId, "users", userId, "students");
             const studentsDocs = await getDocs(studentsRef);
@@ -279,6 +302,7 @@
             }
         };
 
+        // Generate a print-friendly view of the daily reports
         const generatePrintView = () => {
             const printWindow = window.open('', '_blank');
             const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -376,6 +400,7 @@
                 <body>
             `;
 
+            // Loop through each student to create a report card
             for (const student of students) {
                 const report = reportsByStudentId[student.id] && reportsByStudentId[student.id][new Date().toISOString().slice(0, 10)] || {};
                 
@@ -409,13 +434,15 @@
             printWindow.focus();
             printWindow.print();
         };
-
     </script>
 </head>
 <body class="bg-gray-100 font-sans antialiased text-gray-800 p-4 min-h-screen flex flex-col items-center justify-center">
 
     <div class="w-full max-w-7xl flex flex-col items-center justify-center">
+        <!-- Loading message -->
         <div id="loading-message" class="text-lg font-medium text-gray-700 py-4"></div>
+        
+        <!-- Main content container, hidden until Firebase is initialized -->
         <div id="main-content" class="bg-white rounded-xl shadow-lg p-8 w-full hidden">
             <header class="mb-6 border-b pb-4 flex justify-between items-center">
                 <h1 class="text-3xl font-bold text-gray-900">Daily Student Report</h1>
@@ -425,6 +452,7 @@
                 </div>
             </header>
             
+            <!-- Add new student form -->
             <div class="mb-8 p-6 bg-gray-50 rounded-lg shadow-sm">
                 <h2 class="text-xl font-bold text-gray-800 mb-4">Add a New Student</h2>
                 <form id="add-student-form" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -453,6 +481,7 @@
                 </form>
             </div>
 
+            <!-- Daily report form and table -->
             <form id="report-form">
                 <h2 class="text-xl font-bold text-gray-800 mb-4">Daily Report Entry</h2>
                 <div class="overflow-x-auto shadow ring-1 ring-black ring-opacity-5 rounded-lg mb-6">
