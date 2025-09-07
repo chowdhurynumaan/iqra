@@ -118,6 +118,11 @@
             align-items: center;
             z-index: 100;
         }
+        .student-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+        }
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -176,15 +181,16 @@
             
             dateInput.addEventListener('change', (event) => {
                 selectedDate = event.target.value;
-                if (selectedStudent) {
-                    renderStudentReport(selectedStudent);
-                }
-            });
-
-            document.getElementById('back-to-list-button').addEventListener('click', () => {
-                selectedStudent = null;
                 renderStudentCards();
             });
+
+            document.getElementById('save-report-button').addEventListener('click', handleSaveReport);
+            document.getElementById('cancel-report-button').addEventListener('click', hideReportModal);
+            document.getElementById('close-report-modal').addEventListener('click', hideReportModal); // Add listener for close button
+            document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
+            document.getElementById('print-button').addEventListener('click', generatePrintView);
+            document.getElementById('menu-button').addEventListener('click', toggleSidebar);
+            document.getElementById('close-sidebar').addEventListener('click', toggleSidebar);
 
             try {
                 // Initialize Firebase
@@ -198,12 +204,6 @@
                 // Set up real-time listeners for students and reports
                 setupListeners();
                 setupSidebarListeners();
-
-                document.getElementById('report-form').addEventListener('submit', handleSaveReport);
-                document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
-                document.getElementById('print-button').addEventListener('click', generatePrintView);
-                document.getElementById('menu-button').addEventListener('click', toggleSidebar);
-                document.getElementById('close-sidebar').addEventListener('click', toggleSidebar);
 
                 setLoading(false);
                 document.getElementById('status-message').textContent = 'App loaded successfully.';
@@ -220,17 +220,7 @@
             const studentsRef = collection(db, `artifacts/${appId}/public/data/students`);
             onSnapshot(studentsRef, (snapshot) => {
                 students = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                if (!selectedStudent) {
-                    renderStudentCards();
-                } else {
-                    selectedStudent = students.find(s => s.id === selectedStudent.id);
-                    if (selectedStudent) {
-                        renderStudentReport(selectedStudent);
-                    } else {
-                        selectedStudent = null;
-                        renderStudentCards();
-                    }
-                }
+                renderStudentCards();
             });
 
             // Listener for Reports
@@ -244,9 +234,6 @@
                     }
                     reportsByStudentId[report.studentId][report.date] = report;
                 });
-                if (selectedStudent) {
-                    renderStudentReport(selectedStudent);
-                }
             });
         };
         
@@ -273,7 +260,6 @@
                         currentLevelFilter = { gender, level };
                         document.querySelectorAll('#sidebar-links button').forEach(btn => btn.classList.remove('bg-indigo-200', 'text-indigo-800'));
                         levelButton.classList.add('bg-indigo-200', 'text-indigo-800');
-                        selectedStudent = null;
                         renderStudentCards();
                         if (window.innerWidth < 1024) {
                             toggleSidebar();
@@ -289,14 +275,10 @@
 
         const renderStudentCards = () => {
             const listContainer = document.getElementById('student-list-container');
-            const reportContainer = document.getElementById('report-container');
             const addStudentContainer = document.getElementById('add-student-container');
             const header = document.getElementById('main-header');
             
-            listContainer.classList.remove('hidden');
-            reportContainer.classList.add('hidden');
             header.textContent = 'Daily Student Report';
-            
             listContainer.innerHTML = '';
             
             if (!currentLevelFilter) {
@@ -334,7 +316,7 @@
                         return;
                     }
                     selectedStudent = student;
-                    renderStudentReport(selectedStudent);
+                    showReportModal(selectedStudent);
                 });
                 listContainer.appendChild(studentItem);
             });
@@ -348,15 +330,11 @@
             });
         };
         
-        const renderStudentReport = (student) => {
-            const listContainer = document.getElementById('student-list-container');
-            const reportContainer = document.getElementById('report-container');
+        const showReportModal = (student) => {
+            const modal = document.getElementById('report-modal');
             const studentReportContent = document.getElementById('student-report-content');
-            const header = document.getElementById('main-header');
             
-            listContainer.classList.add('hidden');
-            reportContainer.classList.remove('hidden');
-            header.textContent = student.name;
+            document.getElementById('report-student-name').textContent = student.name;
             
             const today = new Date().toISOString().slice(0, 10);
             const isPastDate = new Date(selectedDate) < new Date(today);
@@ -370,38 +348,37 @@
                 <div class="space-y-4">
                     <div class="flex flex-col">
                         <label class="block text-sm font-medium text-gray-700">Last Day's Lesson</label>
-                        <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1 bg-gray-200" name="lastLesson" data-student-id="${student.id}" value="${previousReport.todayLesson || 'N/A'}" readonly>
+                        <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1 bg-gray-200" name="lastLesson" value="${previousReport.todayLesson || 'N/A'}" readonly>
                     </div>
                     <div class="flex flex-col">
                         <label class="block text-sm font-medium text-gray-700">Last Day's Homework</label>
-                        <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1 bg-gray-200" name="lastHomework" data-student-id="${student.id}" value="${previousReport.homeworkNotes || 'N/A'}" readonly>
+                        <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1 bg-gray-200" name="lastHomework" value="${previousReport.homeworkNotes || 'N/A'}" readonly>
                     </div>
                     <div class="flex items-center">
-                        <input type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" name="homeworkCompleted" data-student-id="${student.id}" ${todayReport.homeworkCompleted ? 'checked' : ''} ${disabledAttribute}>
+                        <input type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" name="homeworkCompleted" ${todayReport.homeworkCompleted ? 'checked' : ''} ${disabledAttribute}>
                         <label for="homeworkCompleted" class="ml-2 block text-sm font-medium text-gray-700">Homework Completed?</label>
                     </div>
                     <div class="flex flex-col">
                         <label class="block text-sm font-medium text-gray-700">Today's Lesson</label>
-                        <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1" name="todayLesson" data-student-id="${student.id}" value="${todayReport.todayLesson || ''}" placeholder="Today's Lesson" ${readOnlyAttribute}>
+                        <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1" name="todayLesson" value="${todayReport.todayLesson || ''}" placeholder="Today's Lesson" ${readOnlyAttribute}>
                     </div>
                     <div class="flex flex-col">
                         <label class="block text-sm font-medium text-gray-700">Homework Notes</label>
-                        <textarea class="w-full border-gray-300 rounded-md p-2 mt-1 resize-y" name="homeworkNotes" data-student-id="${student.id}" placeholder="Homework Notes" ${readOnlyAttribute}>${todayReport.homeworkNotes || ''}</textarea>
+                        <textarea class="w-full border-gray-300 rounded-md p-2 mt-1 resize-y" name="homeworkNotes" placeholder="Homework Notes" ${readOnlyAttribute}>${todayReport.homeworkNotes || ''}</textarea>
                     </div>
                     <div class="flex flex-col">
                         <label class="block text-sm font-medium text-gray-700">Behavior Rating</label>
-                        <div class="flex items-center mt-1 ${isPastDate ? '' : 'cursor-pointer'}" data-student-id="${student.id}" data-type="behavior" data-disabled="${isPastDate}">
+                        <div class="flex items-center mt-1 ${isPastDate ? '' : 'cursor-pointer'}" data-type="behavior" data-disabled="${isPastDate}">
                             ${[1, 2, 3, 4, 5].map(i => `<span class="text-gray-400 text-2xl leading-none ${todayReport.behavior >= i ? 'text-yellow-400' : ''}" data-value="${i}">&#9733;</span>`).join('')}
                         </div>
                     </div>
                     <!-- Hidden input to store the behavior rating value -->
-                    <input type="hidden" name="behavior" data-student-id="${student.id}" value="${todayReport.behavior || 0}">
+                    <input type="hidden" name="behavior" value="${todayReport.behavior || 0}">
                 </div>
             `;
             
             document.querySelectorAll('.flex[data-type="behavior"][data-disabled="false"] span').forEach(star => {
                 star.addEventListener('click', (event) => {
-                    const studentId = event.target.closest('[data-student-id]').dataset.studentId;
                     const value = parseInt(event.target.dataset.value);
                     const stars = event.target.parentElement.querySelectorAll('span');
                     stars.forEach(s => {
@@ -411,21 +388,26 @@
                             s.classList.remove('text-yellow-400');
                         }
                     });
-                    document.querySelector(`input[name="behavior"][data-student-id="${studentId}"]`).value = value;
+                    document.querySelector('input[name="behavior"]').value = value;
                 });
             });
 
-            // Adjust the save button's disabled state
-            const isSaveButtonEnabled = !isPastDate;
             const saveButton = document.getElementById('save-report-button');
             if (saveButton) {
-                saveButton.disabled = !isSaveButtonEnabled;
-                if (isSaveButtonEnabled) {
-                    saveButton.classList.remove('opacity-50', 'cursor-not-allowed');
-                } else {
+                saveButton.disabled = isPastDate;
+                if (isPastDate) {
                     saveButton.classList.add('opacity-50', 'cursor-not-allowed');
+                } else {
+                    saveButton.classList.remove('opacity-50', 'cursor-not-allowed');
                 }
             }
+
+            modal.classList.remove('hidden');
+        };
+
+        const hideReportModal = () => {
+            document.getElementById('report-modal').classList.add('hidden');
+            selectedStudent = null;
         };
 
         const showDeleteConfirmationModal = (studentId, studentName) => {
@@ -472,9 +454,6 @@
 
                 document.getElementById('status-message').textContent = 'Student and all reports deleted successfully!';
                 
-                // Navigate back to the student list after deletion
-                selectedStudent = null;
-                renderStudentCards();
             } catch (e) {
                 console.error("Error deleting student: ", e);
                 document.getElementById('status-message').textContent = 'Error: Could not delete student.';
@@ -491,15 +470,15 @@
             }
 
             const student = selectedStudent;
-            const form = event.target;
+            const form = document.getElementById('report-form');
             
             try {
                 const report = {
                     date: selectedDate,
-                    homeworkCompleted: form.querySelector(`input[name="homeworkCompleted"][data-student-id="${student.id}"]`)?.checked || false,
-                    todayLesson: form.querySelector(`input[name="todayLesson"][data-student-id="${student.id}"]`)?.value || '',
-                    homeworkNotes: form.querySelector(`textarea[name="homeworkNotes"][data-student-id="${student.id}"]`)?.value || '',
-                    behavior: parseInt(form.querySelector(`input[name="behavior"][data-student-id="${student.id}"]`)?.value) || 0,
+                    homeworkCompleted: form.querySelector('[name="homeworkCompleted"]').checked || false,
+                    todayLesson: form.querySelector('[name="todayLesson"]').value || '',
+                    homeworkNotes: form.querySelector('[name="homeworkNotes"]').value || '',
+                    behavior: parseInt(form.querySelector('[name="behavior"]').value) || 0,
                     studentId: student.id,
                 };
 
@@ -517,10 +496,7 @@
                     });
                 }
                 
-                if (!reportsByStudentId[student.id]) {
-                    reportsByStudentId[student.id] = {};
-                }
-                reportsByStudentId[student.id][selectedDate] = report;
+                hideReportModal();
                 document.getElementById('status-message').textContent = 'Report saved successfully!';
             } catch (e) {
                 console.error("Error saving reports: ", e);
@@ -784,11 +760,14 @@
         <div id="main-content" class="bg-white rounded-xl shadow-lg p-8 w-full">
             <header class="mb-6 border-b pb-4 flex justify-between items-center flex-wrap">
                 <h1 id="main-header" class="text-3xl font-bold text-gray-900 mb-2 lg:mb-0">Daily Student Report</h1>
-                <div class="text-sm text-gray-600">
+                <div class="flex items-center space-x-4">
                     <div class="flex items-center space-x-2">
                         <span><strong>Date:</strong></span>
                         <input type="date" id="date-input" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                     </div>
+                    <button type="button" id="print-button" class="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Print Reports
+                    </button>
                 </div>
             </header>
             
@@ -812,38 +791,37 @@
             </div>
 
             <!-- Student List Container -->
-            <div id="student-list-container" class="mb-6">
+            <div id="student-list-container" class="mb-6 student-list">
                 <!-- Student names will be rendered here by JavaScript -->
             </div>
+            
+            <div id="status-message" class="text-sm text-gray-600 text-center mt-4"></div>
 
-            <!-- Report Card Container -->
-            <div id="report-container" class="hidden">
-                <div class="flex items-center mb-4">
-                    <button id="back-to-list-button" class="p-2 mr-2 rounded-full hover:bg-gray-200 transition-colors">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                        </svg>
-                    </button>
-                    <h2 class="text-xl font-bold text-gray-800">Student Report</h2>
+        </div>
+    </div>
+
+    <!-- Report Card Modal -->
+    <div id="report-modal" class="modal hidden">
+        <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-xl mx-4 relative">
+            <button id="close-report-modal" class="absolute top-4 right-4 text-gray-500 hover:text-gray-700">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <h2 id="report-student-name" class="text-2xl font-bold text-gray-900 mb-4 border-b pb-2"></h2>
+            <form id="report-form">
+                <div id="student-report-content">
+                    <!-- Student report card content will be rendered here by JavaScript -->
                 </div>
-                <form id="report-form">
-                    <div id="student-report-content">
-                        <!-- Student report card will be rendered here by JavaScript -->
-                    </div>
-                    <div class="flex items-center justify-between mt-4 flex-wrap">
-                        <div>
-                            <button type="submit" id="save-report-button" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 mb-2 sm:mb-0">
-                                Save Report
-                            </button>
-                            <button type="button" id="print-button" class="ml-0 sm:ml-3 inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                                Print Reports
-                            </button>
-                        </div>
-                        <div id="status-message" class="text-sm text-gray-600 mt-2 sm:mt-0"></div>
-                    </div>
-                </form>
-            </div>
-
+                <div class="flex justify-between items-center mt-6">
+                    <button type="button" id="cancel-report-button" class="py-2 px-4 rounded-md text-gray-700 bg-gray-200 hover:bg-gray-300 transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit" id="save-report-button" class="py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Save Report
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
