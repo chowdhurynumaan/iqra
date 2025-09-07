@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Daily Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, query, where, orderBy, limit, onSnapshot, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        setLogLevel('debug'); // Enable debug logging for Firestore
+
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        let db, auth;
+        let userId;
+        let students = [];
+        let reportsByStudentId = {};
+
+        window.onload = async () => {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                userId = auth.currentUser?.uid || crypto.randomUUID();
+                document.getElementById('user-id').textContent = userId;
+
+                // Set up real-time listeners for students and reports
+                setupStudentsListener();
+                setupReportsListener();
+                
+                document.getElementById('report-form').addEventListener('submit', handleSaveReport);
+                document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
+                document.getElementById('print-button').addEventListener('click', generatePrintView);
+
+                // Populate mock data if the database is empty (no longer calling loadStudents)
+                populateMockData();
+            } catch (error) {
+                console.error("Error initializing Firebase:", error);
+                document.getElementById('status-message').textContent = 'Error: Failed to connect to the database.';
+            }
+        };
+        
+        const setupStudentsListener = () => {
+            const studentsRef = collection(db, "artifacts", appId, "users", userId, "students");
+            onSnapshot(studentsRef, (querySnapshot) => {
+                students = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderStudentTable();
+            }, (error) => {
+                console.error("Error setting up students listener:", error);
+            });
+        };
+
+        const setupReportsListener = () => {
+            const reportsRef = collection(db, "artifacts", appId, "users", userId, "dailyReports");
+            onSnapshot(reportsRef, (querySnapshot) => {
+                querySnapshot.docChanges().forEach((change) => {
+                    const report = { id: change.doc.id, ...change.doc.data() };
+                    if (change.type === "added" || change.type === "modified") {
+                        if (!reportsByStudentId[report.studentId]) {
+                            reportsByStudentId[report.studentId] = {};
+                        }
+                        reportsByStudentId[report.studentId][report.date] = report;
+                    } else if (change.type === "removed") {
+                        if (reportsByStudentId[report.studentId]) {
+                            delete reportsByStudentId[report.studentId][report.date];
+                        }
+                    }
+                });
+                renderStudentTable(); // Re-render table to reflect new data
+            }, (error) => {
+                console.error("Error setting up reports listener:", error);
+            });
+        };
+
+        const renderStudentTable = () => {
+            const tbody = document.getElementById('report-body');
+            tbody.innerHTML = '';
+            const today = new Date().toISOString().slice(0, 10);
+
+            if (students.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="11" class="text-center text-gray-500 py-4">No students found. Add students to get started.</td></tr>';
+                return;
+            }
+
+            students.forEach(student => {
+                const report = reportsByStudentId[student.id] && reportsByStudentId[student.id][today] ? reportsByStudentId[student.id][today] : {};
+
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50';
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${student.RG}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${student.LN}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${student.RN}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${student.name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <input type="text" class="w-full border-gray-300 rounded-md p-2" name="lastLesson" data-student-id="${student.id}" value="${report.lastLesson || ''}" placeholder="Last Day's Lesson">
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <input type="text" class="w-full border-gray-300 rounded-md p-2" name="lastHomework" data-student-id="${student.id}" value="${report.lastHomework || ''}" placeholder="Last Day's Homework">
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                        <input type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" name="homeworkCompleted" data-student-id="${student.id}" ${report.homeworkCompleted ? 'checked' : ''}>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <input type="text" class="w-full border-gray-300 rounded-md p-2" name="todayLesson" data-student-id="${student.id}" value="${report.todayLesson || ''}" placeholder="Today's Lesson">
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <input type="text" class="w-full border-gray-300 rounded-md p-2" name="nextLesson" data-student-id="${student.id}" value="${report.nextLesson || ''}" placeholder="Next Day's Lesson">
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <input type="text" class="w-full border-gray-300 rounded-md p-2" name="homeworkNotes" data-student-id="${student.id}" value="${report.homeworkNotes || ''}" placeholder="Homework Notes">
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <div class="flex" data-student-id="${student.id}" data-type="behavior">
+                            ${[1, 2, 3, 4, 5].map(i => `<span class="text-gray-400 cursor-pointer text-2xl leading-none ${report.behavior >= i ? 'text-yellow-400' : ''}" data-value="${i}">&#9733;</span>`).join('')}
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            // Attach event listeners for star ratings
+            document.querySelectorAll('.flex[data-type="behavior"] span').forEach(star => {
+                star.addEventListener('click', (event) => {
+                    const studentId = event.target.closest('[data-student-id]').dataset.studentId;
+                    const value = parseInt(event.target.dataset.value);
+                    const stars = event.target.parentElement.querySelectorAll('span');
+                    stars.forEach(s => {
+                        if (parseInt(s.dataset.value) <= value) {
+                            s.classList.add('text-yellow-400');
+                        } else {
+                            s.classList.remove('text-yellow-400');
+                        }
+                    });
+                    const studentRow = document.querySelector(`[data-student-id="${studentId}"]`).closest('tr');
+                    let hiddenInput = studentRow.querySelector(`input[name="behavior"][data-student-id="${studentId}"]`);
+                    if (!hiddenInput) {
+                        hiddenInput = document.createElement('input');
+                        hiddenInput.type = 'hidden';
+                        hiddenInput.name = 'behavior';
+                        hiddenInput.dataset.studentId = studentId;
+                        studentRow.appendChild(hiddenInput);
+                    }
+                    hiddenInput.value = value;
+                });
+            });
+        };
+
+        const handleSaveReport = async (event) => {
+            event.preventDefault();
+            const form = event.target;
+            const studentsReport = {};
+            const today = new Date().toISOString().slice(0, 10);
+            
+            students.forEach(student => {
+                const report = {
+                    date: today,
+                    lastLesson: form.querySelector(`input[name="lastLesson"][data-student-id="${student.id}"]`).value,
+                    lastHomework: form.querySelector(`input[name="lastHomework"][data-student-id="${student.id}"]`).value,
+                    homeworkCompleted: form.querySelector(`input[name="homeworkCompleted"][data-student-id="${student.id}"]`).checked,
+                    todayLesson: form.querySelector(`input[name="todayLesson"][data-student-id="${student.id}"]`).value,
+                    nextLesson: form.querySelector(`input[name="nextLesson"][data-student-id="${student.id}"]`).value,
+                    homeworkNotes: form.querySelector(`input[name="homeworkNotes"][data-student-id="${student.id}"]`).value,
+                    behavior: parseInt(form.querySelector(`input[name="behavior"][data-student-id="${student.id}"]`)?.value) || 0,
+                    studentId: student.id,
+                };
+                studentsReport[student.id] = report;
+            });
+
+            try {
+                for (const studentId in studentsReport) {
+                    const reportData = studentsReport[studentId];
+                    const existingReport = reportsByStudentId[studentId] && reportsByStudentId[studentId][today];
+
+                    if (existingReport) {
+                        const reportRef = doc(db, "artifacts", appId, "users", userId, "dailyReports", existingReport.id);
+                        await updateDoc(reportRef, reportData);
+                    } else {
+                        const reportsRef = collection(db, "artifacts", appId, "users", userId, "dailyReports");
+                        await addDoc(reportsRef, reportData);
+                    }
+                }
+                document.getElementById('status-message').textContent = 'Reports saved successfully!';
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                document.getElementById('status-message').textContent = 'Error: Could not save reports.';
+            }
+        };
+
+        const handleAddStudent = async (event) => {
+            event.preventDefault();
+            const form = event.target;
+            const studentData = {
+                name: form.querySelector('[name="studentName"]').value,
+                RG: form.querySelector('[name="studentRG"]').value,
+                LN: form.querySelector('[name="studentLN"]').value,
+                RN: form.querySelector('[name="studentRN"]').value,
+            };
+
+            if (!studentData.name || !studentData.RG || !studentData.LN || !studentData.RN) {
+                document.getElementById('student-add-status').textContent = 'Please fill out all fields.';
+                return;
+            }
+
+            try {
+                const studentsRef = collection(db, "artifacts", appId, "users", userId, "students");
+                await addDoc(studentsRef, studentData);
+                document.getElementById('student-add-status').textContent = 'Student added successfully!';
+                form.reset();
+            } catch (e) {
+                console.error("Error adding student:", e);
+                document.getElementById('student-add-status').textContent = 'Error adding student.';
+            }
+        };
+
+        // Populate mock student data if the database is empty
+        const populateMockData = async () => {
+            const studentsRef = collection(db, "artifacts", appId, "users", userId, "students");
+            const studentsCount = (await getDocs(studentsRef)).size;
+            if (studentsCount === 0) {
+                const mockStudents = [
+                    { name: "John Doe", RG: "A1", LN: "1", RN: "01" },
+                    { name: "Jane Smith", RG: "A2", LN: "2", RN: "02" },
+                    { name: "Peter Jones", RG: "B1", LN: "3", RN: "03" },
+                    { name: "Mary Williams", RG: "B2", LN: "4", RN: "04" },
+                    { name: "Chris Evans", RG: "C1", LN: "5", RN: "05" },
+                    { name: "Emily Blunt", RG: "C2", LN: "6", RN: "06" },
+                    { name: "Mark Ruffalo", RG: "D1", LN: "7", RN: "07" },
+                    { name: "Scarlett Johansson", RG: "D2", LN: "8", RN: "08" },
+                    { name: "Robert Downey Jr.", RG: "E1", LN: "9", RN: "09" },
+                    { name: "Gwyneth Paltrow", RG: "E2", LN: "10", RN: "10" },
+                    { name: "Tom Holland", RG: "F1", LN: "11", RN: "11" },
+                    { name: "Zendaya", RG: "F2", LN: "12", RN: "12" },
+                    { name: "Benedict Cumberbatch", RG: "G1", LN: "13", RN: "13" },
+                    { name: "Elizabeth Olsen", RG: "G2", LN: "14", RN: "14" },
+                    { name: "Paul Rudd", RG: "H1", LN: "15", RN: "15" },
+                    { name: "Evangeline Lilly", RG: "H2", LN: "16", RN: "16" },
+                    { name: "Chris Pratt", RG: "I1", LN: "17", RN: "17" },
+                    { name: "Zoe Saldana", RG: "I2", LN: "18", RN: "18" },
+                    { name: "Dave Bautista", RG: "J1", LN: "19", RN: "19" },
+                    { name: "Vin Diesel", RG: "J2", LN: "20", RN: "20" },
+                ];
+                for (const student of mockStudents) {
+                    await addDoc(studentsRef, student);
+                }
+            }
+        };
+
+        const generatePrintView = () => {
+            const printWindow = window.open('', '_blank');
+            const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+            
+            let printContent = `
+                <html>
+                <head>
+                    <title>Student Daily Reports</title>
+                    <style>
+                        body {
+                            font-family: Arial, sans-serif;
+                            margin: 0;
+                            padding: 0;
+                        }
+                        .report-card {
+                            width: 8.5in;
+                            height: 5.5in;
+                            box-sizing: border-box;
+                            padding: 0.5in;
+                            border-bottom: 2px dashed #ccc;
+                        }
+                        .report-card:nth-child(2n) {
+                            page-break-after: always;
+                        }
+                        .report-card:last-of-type {
+                            border-bottom: none;
+                        }
+                        .report-header {
+                            text-align: center;
+                            font-size: 18px;
+                            font-weight: bold;
+                            margin-bottom: 10px;
+                        }
+                        .report-info {
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 12px;
+                            margin-bottom: 10px;
+                        }
+                        .report-grid {
+                            display: grid;
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: 10px;
+                            font-size: 12px;
+                            line-height: 1.5;
+                        }
+                        .grid-item {
+                            border-bottom: 1px dashed #000;
+                            padding-bottom: 3px;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                        }
+                        .grid-item strong {
+                            font-weight: bold;
+                        }
+                        .signature-block {
+                            margin-top: 20px;
+                            border-top: 1px solid #000;
+                            padding-top: 5px;
+                            font-size: 12px;
+                        }
+                        .stars {
+                            color: #f8d748;
+                            font-size: 16px;
+                            line-height: 1;
+                        }
+                        @media print {
+                            .no-print {
+                                display: none;
+                            }
+                            html, body {
+                                width: 8.5in;
+                                height: 11in;
+                                margin: 0;
+                                padding: 0;
+                            }
+                            .report-card {
+                                width: 8.5in;
+                                height: 5.5in;
+                                box-sizing: border-box;
+                                padding: 0.5in;
+                                border-bottom: 2px dashed #000;
+                            }
+                            .report-card:nth-child(2n) {
+                                page-break-after: always;
+                            }
+                            .report-card:last-of-type {
+                                border-bottom: none;
+                                page-break-after: avoid;
+                            }
+                        }
+                    </style>
+                </head>
+                <body>
+            `;
+
+            for (const student of students) {
+                const report = reportsByStudentId[student.id] && reportsByStudentId[student.id][new Date().toISOString().slice(0, 10)] || {};
+                
+                printContent += `
+                    <div class="report-card">
+                        <div class="report-header">Daily Student Report</div>
+                        <div class="report-info">
+                            <div><strong>Name:</strong> ${student.name}</div>
+                            <div><strong>Date:</strong> ${today}</div>
+                        </div>
+                        <div class="report-grid">
+                            <div class="grid-item"><strong>Last Day's Lesson:</strong> ${report.lastLesson || 'N/A'}</div>
+                            <div class="grid-item"><strong>Today's Lesson:</strong> ${report.todayLesson || 'N/A'}</div>
+                            <div class="grid-item"><strong>Last Day's Homework:</strong> ${report.lastHomework || 'N/A'}</div>
+                            <div class="grid-item"><strong>Next Day's Lesson:</strong> ${report.nextLesson || 'N/A'}</div>
+                            <div class="grid-item"><strong>Homework Completed?:</strong> ${report.homeworkCompleted ? 'Yes' : 'No'}</div>
+                            <div class="grid-item"><strong>Behavior:</strong> <span class="stars">${'★'.repeat(report.behavior || 0)}${'☆'.repeat(5 - (report.behavior || 0))}</span></div>
+                            <div class="grid-item"><strong>Notes:</strong> ${report.homeworkNotes || 'N/A'}</div>
+                        </div>
+                        <div class="signature-block">
+                            <p>Parent's Signature: _________________________</p>
+                        </div>
+                    </div>
+                `;
+            }
+
+            printContent += `</body></html>`;
+            
+            printWindow.document.write(printContent);
+            printWindow.document.close();
+            printWindow.focus();
+            printWindow.print();
+        };
+
+    </script>
+</head>
+<body class="bg-gray-100 font-sans antialiased text-gray-800 p-4 min-h-screen flex items-center justify-center">
+
+    <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-7xl no-print">
+        <header class="mb-6 border-b pb-4 flex justify-between items-center">
+            <h1 class="text-3xl font-bold text-gray-900">Daily Student Report</h1>
+            <div class="text-sm text-gray-600">
+                <p><strong>User ID:</strong> <span id="user-id" class="font-mono text-xs text-gray-500"></span></p>
+                <p><strong>Date:</strong> <span id="current-date"></span></p>
+            </div>
+        </header>
+        
+        <div class="mb-8 p-6 bg-gray-50 rounded-lg shadow-sm">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Add a New Student</h2>
+            <form id="add-student-form" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                    <label for="studentRG" class="block text-sm font-medium text-gray-700">RG</label>
+                    <input type="text" name="studentRG" id="studentRG" placeholder="e.g., A1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                </div>
+                <div>
+                    <label for="studentLN" class="block text-sm font-medium text-gray-700">LN</label>
+                    <input type="text" name="studentLN" id="studentLN" placeholder="e.g., 1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                </div>
+                <div>
+                    <label for="studentRN" class="block text-sm font-medium text-gray-700">RN</label>
+                    <input type="text" name="studentRN" id="studentRN" placeholder="e.g., 01" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                </div>
+                <div>
+                    <label for="studentName" class="block text-sm font-medium text-gray-700">Student Name</label>
+                    <input type="text" name="studentName" id="studentName" placeholder="e.g., John Doe" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                </div>
+                <div class="md:col-span-2 lg:col-span-4 flex items-center justify-between mt-2">
+                    <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                        Add Student
+                    </button>
+                    <div id="student-add-status" class="text-sm text-gray-600"></div>
+                </div>
+            </form>
+        </div>
+
+        <form id="report-form">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Daily Report Entry</h2>
+            <div class="overflow-x-auto shadow ring-1 ring-black ring-opacity-5 rounded-lg mb-6">
+                <table class="min-w-full divide-y divide-gray-300">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RG</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">LN</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RN</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Day's Lesson</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Day's Homework</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Homework<br>Completed?</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Today's Lesson</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Next Day's Lesson</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Homework Notes</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Behavior</th>
+                        </tr>
+                    </thead>
+                    <tbody id="report-body" class="bg-white divide-y divide-gray-200">
+                        <!-- Student rows will be rendered here by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex items-center justify-between mt-4">
+                <div>
+                    <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Save Report
+                    </button>
+                    <button type="button" id="print-button" class="ml-3 inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Print Reports
+                    </button>
+                </div>
+                <div id="status-message" class="text-sm text-gray-600"></div>
+            </div>
+        </form>
+    </div>
+
+</body>
+</html>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const dateElement = document.getElementById('current-date');
+        const today = new Date();
+        const options = { year: 'numeric', month: 'long', day: 'numeric' };
+        dateElement.textContent = today.toLocaleDateString('en-US', options);
+    });
+</script>
