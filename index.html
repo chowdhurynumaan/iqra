@@ -8,12 +8,10 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, query, where, orderBy, limit, onSnapshot, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, onSnapshot, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         setLogLevel('debug'); // Enable debug logging for Firestore
 
-        // IMPORTANT: The Firebase configuration is now loaded from a global variable provided by the environment,
-        // which prevents API keys from being exposed in the code.
         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
         const appId = typeof __app_id !== 'undefined' ? __app_id : firebaseConfig.projectId;
 
@@ -22,13 +20,35 @@
         let students = [];
         let reportsByStudentId = {};
 
+        // Function to show and hide the loading indicator
+        const setLoading = (isLoading, message = '') => {
+            const loadingElement = document.getElementById('loading-overlay');
+            const mainContent = document.getElementById('main-content');
+            const statusMessage = document.getElementById('status-message');
+
+            if (isLoading) {
+                loadingElement.classList.remove('hidden');
+                mainContent.classList.add('hidden');
+                statusMessage.textContent = message;
+            } else {
+                loadingElement.classList.add('hidden');
+                mainContent.classList.remove('hidden');
+                statusMessage.textContent = '';
+            }
+        };
+
         window.onload = async () => {
+            setLoading(true, 'Connecting to the database...');
+            
             try {
+                if (Object.keys(firebaseConfig).length === 0) {
+                    throw new Error("Firebase configuration is not available.");
+                }
+
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                // Use the provided custom auth token for this environment.
                 if (typeof __initial_auth_token !== 'undefined') {
                     await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
@@ -38,7 +58,6 @@
                 userId = auth.currentUser?.uid || crypto.randomUUID();
                 document.getElementById('user-id').textContent = userId;
 
-                // Set up real-time listeners for students and reports
                 setupStudentsListener();
                 setupReportsListener();
                 
@@ -46,11 +65,12 @@
                 document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
                 document.getElementById('print-button').addEventListener('click', generatePrintView);
 
-                // Populate mock data if the database is empty
-                populateMockData();
+                await populateMockData();
+                setLoading(false); // Hide loading on success
+
             } catch (error) {
                 console.error("Error initializing Firebase:", error);
-                document.getElementById('status-message').textContent = 'Error: Failed to connect to the database. Please check your Firebase configuration.';
+                document.getElementById('loading-message').textContent = `Error: Failed to connect to the database. Reason: ${error.message}. Please check your connection.`;
             }
         };
         
@@ -61,6 +81,7 @@
                 renderStudentTable();
             }, (error) => {
                 console.error("Error setting up students listener:", error);
+                document.getElementById('status-message').textContent = 'Error: Failed to load student data.';
             });
         };
 
@@ -80,9 +101,10 @@
                         }
                     }
                 });
-                renderStudentTable(); // Re-render table to reflect new data
+                renderStudentTable();
             }, (error) => {
                 console.error("Error setting up reports listener:", error);
+                document.getElementById('status-message').textContent = 'Error: Failed to load report data.';
             });
         };
 
@@ -133,7 +155,6 @@
                 tbody.appendChild(row);
             });
 
-            // Attach event listeners for star ratings
             document.querySelectorAll('.flex[data-type="behavior"] span').forEach(star => {
                 star.addEventListener('click', (event) => {
                     const studentId = event.target.closest('[data-student-id]').dataset.studentId;
@@ -146,14 +167,13 @@
                             s.classList.remove('text-yellow-400');
                         }
                     });
-                    const studentRow = document.querySelector(`[data-student-id="${studentId}"]`).closest('tr');
-                    let hiddenInput = studentRow.querySelector(`input[name="behavior"][data-student-id="${studentId}"]`);
+                    let hiddenInput = document.querySelector(`input[name="behavior"][data-student-id="${studentId}"]`);
                     if (!hiddenInput) {
                         hiddenInput = document.createElement('input');
                         hiddenInput.type = 'hidden';
                         hiddenInput.name = 'behavior';
                         hiddenInput.dataset.studentId = studentId;
-                        studentRow.appendChild(hiddenInput);
+                        document.querySelector(`[data-student-id="${studentId}"]`).closest('tr').appendChild(hiddenInput);
                     }
                     hiddenInput.value = value;
                 });
@@ -163,35 +183,30 @@
         const handleSaveReport = async (event) => {
             event.preventDefault();
             const form = event.target;
-            const studentsReport = {};
             const today = new Date().toISOString().slice(0, 10);
             
-            students.forEach(student => {
-                const report = {
-                    date: today,
-                    lastLesson: form.querySelector(`input[name="lastLesson"][data-student-id="${student.id}"]`).value,
-                    lastHomework: form.querySelector(`input[name="lastHomework"][data-student-id="${student.id}"]`).value,
-                    homeworkCompleted: form.querySelector(`input[name="homeworkCompleted"][data-student-id="${student.id}"]`).checked,
-                    todayLesson: form.querySelector(`input[name="todayLesson"][data-student-id="${student.id}"]`).value,
-                    nextLesson: form.querySelector(`input[name="nextLesson"][data-student-id="${student.id}"]`).value,
-                    homeworkNotes: form.querySelector(`input[name="homeworkNotes"][data-student-id="${student.id}"]`).value,
-                    behavior: parseInt(form.querySelector(`input[name="behavior"][data-student-id="${student.id}"]`)?.value) || 0,
-                    studentId: student.id,
-                };
-                studentsReport[student.id] = report;
-            });
-
             try {
-                for (const studentId in studentsReport) {
-                    const reportData = studentsReport[studentId];
-                    const existingReport = reportsByStudentId[studentId] && reportsByStudentId[studentId][today];
+                for (const student of students) {
+                    const report = {
+                        date: today,
+                        lastLesson: form.querySelector(`input[name="lastLesson"][data-student-id="${student.id}"]`)?.value || '',
+                        lastHomework: form.querySelector(`input[name="lastHomework"][data-student-id="${student.id}"]`)?.value || '',
+                        homeworkCompleted: form.querySelector(`input[name="homeworkCompleted"][data-student-id="${student.id}"]`)?.checked || false,
+                        todayLesson: form.querySelector(`input[name="todayLesson"][data-student-id="${student.id}"]`)?.value || '',
+                        nextLesson: form.querySelector(`input[name="nextLesson"][data-student-id="${student.id}"]`)?.value || '',
+                        homeworkNotes: form.querySelector(`input[name="homeworkNotes"][data-student-id="${student.id}"]`)?.value || '',
+                        behavior: parseInt(form.querySelector(`input[name="behavior"][data-student-id="${student.id}"]`)?.value) || 0,
+                        studentId: student.id,
+                    };
+                    
+                    const existingReport = reportsByStudentId[student.id] && reportsByStudentId[student.id][today];
 
                     if (existingReport) {
                         const reportRef = doc(db, "artifacts", appId, "users", userId, "dailyReports", existingReport.id);
-                        await updateDoc(reportRef, reportData);
+                        await updateDoc(reportRef, report);
                     } else {
                         const reportsRef = collection(db, "artifacts", appId, "users", userId, "dailyReports");
-                        await addDoc(reportsRef, reportData);
+                        await addDoc(reportsRef, report);
                     }
                 }
                 document.getElementById('status-message').textContent = 'Reports saved successfully!';
@@ -227,11 +242,10 @@
             }
         };
 
-        // Populate mock student data if the database is empty
         const populateMockData = async () => {
             const studentsRef = collection(db, "artifacts", appId, "users", userId, "students");
-            const studentsCount = (await getDocs(studentsRef)).size;
-            if (studentsCount === 0) {
+            const studentsDocs = await getDocs(studentsRef);
+            if (studentsDocs.empty) {
                 const mockStudents = [
                     { name: "John Doe", RG: "A1", LN: "1", RN: "01" },
                     { name: "Jane Smith", RG: "A2", LN: "2", RN: "02" },
@@ -395,7 +409,12 @@
 </head>
 <body class="bg-gray-100 font-sans antialiased text-gray-800 p-4 min-h-screen flex items-center justify-center">
 
-    <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-7xl no-print">
+    <div id="loading-overlay" class="absolute inset-0 bg-white bg-opacity-70 flex flex-col items-center justify-center z-50">
+        <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-indigo-500"></div>
+        <p id="loading-message" class="mt-4 text-lg font-medium text-gray-700">Connecting to the database...</p>
+    </div>
+
+    <div id="main-content" class="bg-white rounded-xl shadow-lg p-8 w-full max-w-7xl hidden">
         <header class="mb-6 border-b pb-4 flex justify-between items-center">
             <h1 class="text-3xl font-bold text-gray-900">Daily Student Report</h1>
             <div class="text-sm text-gray-600">
