@@ -107,23 +107,25 @@
             }
         }
     </style>
-    <script>
-        // Data and variables are now stored locally in the browser's memory
-        let students = [
-            { id: 's1', name: "Ahmed Khan", gender: "Boys", level: "1A" },
-            { id: 's2', name: "Zainab Ali", gender: "Girls", level: "1A" },
-            { id: 's3', name: "Ali Hassan", gender: "Boys", level: "1B" },
-            { id: 's4', name: "Fatima Noor", gender: "Girls", level: "1B" },
-            { id: 's5', name: "Umar Farooq", gender: "Boys", level: "1C" },
-            { id: 's6', name: "Aisha Bibi", gender: "Girls", level: "1C" },
-            { id: 's7', name: "Yusuf Said", gender: "Boys", level: "2" },
-            { id: 's8', name: "Maryam Khalid", gender: "Girls", level: "2" },
-            { id: 's9', name: "Bilal Ahmad", gender: "Boys", level: "3" },
-            { id: 's10', name: "Sara Latif", gender: "Girls", level: "3" },
-            { id: 's11', name: "Hamza Rashid", gender: "Boys", level: "4" },
-            { id: 's12', name: "Hafsa Malik", gender: "Girls", level: "4" },
-        ];
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, doc, getDocs, query, where, addDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
+        // Your Firebase web app's configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAhwh9LCBqAHjVjOS4f-20ItigVGZ1IL6I",
+            authDomain: "student-report-app-ce17c.firebaseapp.com",
+            projectId: "student-report-app-ce17c",
+            storageBucket: "student-report-app-ce17c.firebasestorage.app",
+            messagingSenderId: "214194844418",
+            appId: "1:214194844418:web:0b801925ad25891816481b"
+        };
+        const appId = firebaseConfig.projectId;
+
+        let db, auth;
+        let userId;
+        let students = [];
         let reportsByStudentId = {};
         let currentLevelFilter = null;
 
@@ -143,25 +145,62 @@
             }
         };
 
-        window.onload = () => {
+        window.onload = async () => {
             setLoading(true, 'Initializing...');
             const dateElement = document.getElementById('current-date');
             const today = new Date();
             const options = { year: 'numeric', month: 'long', day: 'numeric' };
             dateElement.textContent = today.toLocaleDateString('en-US', options);
-            
-            setupSidebarListeners();
-            renderStudentCards();
-            document.getElementById('report-form').addEventListener('submit', handleSaveReport);
-            document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
-            document.getElementById('print-button').addEventListener('click', generatePrintView);
-            document.getElementById('menu-button').addEventListener('click', toggleSidebar);
-            document.getElementById('close-sidebar').addEventListener('click', toggleSidebar);
-            
-            document.getElementById('user-id').textContent = 'standalone-mode';
-            
-            setLoading(false);
-            document.getElementById('status-message').textContent = 'App loaded successfully.';
+
+            try {
+                // Initialize Firebase
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // Sign in anonymously
+                await signInAnonymously(auth);
+                userId = auth.currentUser.uid;
+                document.getElementById('user-id').textContent = userId;
+                
+                // Fetch students and reports from Firestore
+                await fetchInitialData();
+
+                setupSidebarListeners();
+                renderStudentCards();
+                document.getElementById('report-form').addEventListener('submit', handleSaveReport);
+                document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
+                document.getElementById('print-button').addEventListener('click', generatePrintView);
+                document.getElementById('menu-button').addEventListener('click', toggleSidebar);
+                document.getElementById('close-sidebar').addEventListener('click', toggleSidebar);
+
+                setLoading(false);
+                document.getElementById('status-message').textContent = 'App loaded successfully.';
+
+            } catch (error) {
+                console.error("Error initializing Firebase or fetching data:", error);
+                document.getElementById('status-message').textContent = 'Error initializing app. Check console for details.';
+                setLoading(false);
+            }
+        };
+
+        const fetchInitialData = async () => {
+             // Fetch all students
+            const studentsRef = collection(db, `artifacts/${appId}/users/${userId}/students`);
+            const studentsSnapshot = await getDocs(studentsRef);
+            students = studentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            // Fetch all reports
+            const reportsRef = collection(db, `artifacts/${appId}/users/${userId}/reports`);
+            const reportsSnapshot = await getDocs(reportsRef);
+            reportsByStudentId = {};
+            reportsSnapshot.docs.forEach(doc => {
+                const report = doc.data();
+                if (!reportsByStudentId[report.studentId]) {
+                    reportsByStudentId[report.studentId] = {};
+                }
+                reportsByStudentId[report.studentId][report.date] = report;
+            });
         };
         
         const toggleSidebar = () => {
@@ -207,16 +246,23 @@
 
         const renderStudentCards = () => {
             const cardsContainer = document.getElementById('report-cards-container');
+            const addStudentContainer = document.getElementById('add-student-container');
             cardsContainer.innerHTML = '';
+
+            if (!currentLevelFilter) {
+                cardsContainer.innerHTML = `<p class="text-center text-gray-500 py-4">Please select a class from the sidebar to view students and add new ones.</p>`;
+                addStudentContainer.classList.add('hidden');
+                return;
+            }
+
+            addStudentContainer.classList.remove('hidden');
+
             const today = new Date().toISOString().slice(0, 10);
             
-            const filteredStudents = currentLevelFilter 
-                ? students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level) 
-                : students;
+            const filteredStudents = students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level);
 
             if (filteredStudents.length === 0) {
-                const message = currentLevelFilter ? `No students found for ${currentLevelFilter.gender}, Level ${currentLevelFilter.level}.` : 'Select a level from the sidebar to view students.';
-                cardsContainer.innerHTML = `<p class="text-center text-gray-500 py-4">${message}</p>`;
+                cardsContainer.innerHTML = `<p class="text-center text-gray-500 py-4">No students found for this class. Use the form below to add one.</p>`;
                 return;
             }
 
@@ -279,7 +325,7 @@
             });
         };
 
-        const handleSaveReport = (event) => {
+        const handleSaveReport = async (event) => {
             event.preventDefault();
             const form = event.target;
             const today = new Date().toISOString().slice(0, 10);
@@ -305,6 +351,20 @@
                         behavior: parseInt(form.querySelector(`input[name="behavior"][data-student-id="${student.id}"]`)?.value) || 0,
                         studentId: student.id,
                     };
+
+                    const reportsRef = collection(db, `artifacts/${appId}/users/${userId}/reports`);
+                    const q = query(reportsRef, where("studentId", "==", student.id), where("date", "==", today));
+                    const querySnapshot = await getDocs(q);
+
+                    if (querySnapshot.empty) {
+                        // Document doesn't exist, create a new one
+                        await addDoc(reportsRef, report);
+                    } else {
+                        // Document exists, update it
+                        querySnapshot.docs.forEach(async (doc) => {
+                            await updateDoc(doc.ref, report);
+                        });
+                    }
                     
                     if (!reportsByStudentId[student.id]) {
                         reportsByStudentId[student.id] = {};
@@ -318,31 +378,44 @@
             }
         };
 
-        const handleAddStudent = (event) => {
+        const handleAddStudent = async (event) => {
             event.preventDefault();
+            if (!currentLevelFilter) {
+                document.getElementById('student-add-status').textContent = 'Please select a level first.';
+                return;
+            }
             const form = event.target;
+            const studentName = form.querySelector('[name="studentName"]').value.trim();
             const studentData = {
-                name: form.querySelector('[name="studentName"]').value.trim(),
-                gender: form.querySelector('[name="studentGender"]').value,
-                level: form.querySelector('[name="studentLevel"]').value,
-                id: `s${students.length + 1}`
+                name: studentName,
+                gender: currentLevelFilter.gender,
+                level: currentLevelFilter.level,
             };
 
-            if (!studentData.name || !studentData.gender || !studentData.level) {
-                document.getElementById('student-add-status').textContent = 'Please fill out all fields.';
+            if (!studentData.name) {
+                document.getElementById('student-add-status').textContent = 'Please enter a student name.';
                 return;
             }
             
-            const isDuplicate = students.some(s => s.name === studentData.name && s.gender === studentData.gender && s.level === studentData.level);
-            if (isDuplicate) {
-                document.getElementById('student-add-status').textContent = 'Error: A student with this name and level already exists.';
-                return;
-            }
+            try {
+                // Check for duplicates
+                const studentsRef = collection(db, `artifacts/${appId}/users/${userId}/students`);
+                const q = query(studentsRef, where("name", "==", studentData.name), where("gender", "==", studentData.gender), where("level", "==", studentData.level));
+                const querySnapshot = await getDocs(q);
+                
+                if (!querySnapshot.empty) {
+                    document.getElementById('student-add-status').textContent = 'Error: A student with this name and level already exists.';
+                    return;
+                }
 
-            students.push(studentData);
-            document.getElementById('student-add-status').textContent = 'Student added successfully!';
-            form.reset();
-            renderStudentCards();
+                // Add new student to Firestore
+                await addDoc(studentsRef, studentData);
+                document.getElementById('student-add-status').textContent = `Student ${studentName} added successfully to ${currentLevelFilter.gender}, Level ${currentLevelFilter.level}!`;
+                form.reset();
+            } catch (e) {
+                console.error("Error adding student: ", e);
+                document.getElementById('student-add-status').textContent = 'Error: Could not add student.';
+            }
         };
 
         const generatePrintView = () => {
@@ -561,32 +634,12 @@
             </header>
             
             <!-- Add new student form -->
-            <div class="mb-8 p-6 bg-gray-50 rounded-lg shadow-sm">
+            <div id="add-student-container" class="hidden mb-8 p-6 bg-gray-50 rounded-lg shadow-sm">
                 <h2 class="text-xl font-bold text-gray-800 mb-4">Add a New Student</h2>
                 <form id="add-student-form" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div>
                         <label for="studentName" class="block text-sm font-medium text-gray-700">Student Name</label>
                         <input type="text" name="studentName" id="studentName" placeholder="e.g., John Doe" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
-                    </div>
-                    <div>
-                        <label for="studentGender" class="block text-sm font-medium text-gray-700">Gender</label>
-                        <select name="studentGender" id="studentGender" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
-                            <option value="">Select Gender</option>
-                            <option value="Boys">Boys</option>
-                            <option value="Girls">Girls</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="studentLevel" class="block text-sm font-medium text-gray-700">Level</label>
-                        <select name="studentLevel" id="studentLevel" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
-                            <option value="">Select Level</option>
-                            <option value="1A">1A</option>
-                            <option value="1B">1B</option>
-                            <option value="1C">1C</option>
-                            <option value="2">2</option>
-                            <option value="3">3</option>
-                            <option value="4">4</option>
-                        </select>
                     </div>
                     <div class="md:col-span-2 lg:col-span-1 flex items-end justify-start mt-2">
                         <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
