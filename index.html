@@ -12,9 +12,7 @@
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         setLogLevel('debug'); // Enable debug logging for Firestore
 
-        const __firebase_config = typeof window.__firebase_config !== 'undefined' ? window.__firebase_config : '{}';
-        console.log('Raw __firebase_config:', __firebase_config);
-        const firebaseConfig = JSON.parse(__firebase_config);
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         console.log('Parsed firebaseConfig:', firebaseConfig);
         const appId = typeof __app_id !== 'undefined' ? __app_id : firebaseConfig.projectId;
 
