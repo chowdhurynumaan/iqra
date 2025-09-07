@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Student Daily Report</title>
+    <title>Student Daily Report Standalone</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .sidebar {
@@ -16,29 +16,30 @@
             overflow-y: auto;
         }
     </style>
-    <script type="module">
-        // Firebase imports
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, onSnapshot, doc, updateDoc, setLogLevel, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    <script>
+        // Data and variables are now stored locally in the browser's memory
+        let students = [
+            { id: 's1', name: "Ahmed Khan", gender: "Boys", level: "1A" },
+            { id: 's2', name: "Zainab Ali", gender: "Girls", level: "1A" },
+            { id: 's3', name: "Ali Hassan", gender: "Boys", level: "1B" },
+            { id: 's4', name: "Fatima Noor", gender: "Girls", level: "1B" },
+            { id: 's5', name: "Umar Farooq", gender: "Boys", level: "1C" },
+            { id: 's6', name: "Aisha Bibi", gender: "Girls", level: "1C" },
+            { id: 's7', name: "Yusuf Said", gender: "Boys", level: "2" },
+            { id: 's8', name: "Maryam Khalid", gender: "Girls", level: "2" },
+            { id: 's9', name: "Bilal Ahmad", gender: "Boys", level: "3" },
+            { id: 's10', name: "Sara Latif", gender: "Girls", level: "3" },
+            { id: 's11', name: "Hamza Rashid", gender: "Boys", level: "4" },
+            { id: 's12', name: "Hafsa Malik", gender: "Girls", level: "4" },
+        ];
         
-        // Enable debug logging for Firestore
-        setLogLevel('debug'); 
-
-        // Use environment variables for Firebase configuration
-        const providedFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const appId = typeof __app_id !== 'undefined' ? __app_id : providedFirebaseConfig.projectId || 'default-app-id';
-        
-        let db, auth;
-        let userId;
-        let students = [];
         let reportsByStudentId = {};
         let currentLevelFilter = null;
 
         const levels = ['1A', '1B', '1C', '2', '3', '4'];
         const genders = ['Boys', 'Girls'];
 
-        // Function to show and hide the loading indicator
+        // Function to show and hide the loading indicator (simplified)
         const setLoading = (isLoading, message = '') => {
             const loadingMessageElement = document.getElementById('loading-message');
             const mainContent = document.getElementById('main-content');
@@ -52,92 +53,26 @@
             }
         };
 
-        // Initialize Firebase and set up authentication
-        const initializeFirebase = async (config) => {
-            try {
-                if (Object.keys(config).length === 0 || !config.projectId) {
-                    throw new Error("Firebase configuration is not available or is empty.");
-                }
-                const app = initializeApp(config);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                
-                // Use the provided custom auth token to sign in
-                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
-
-                // Set userId to the authenticated user's UID
-                userId = auth.currentUser?.uid || 'anonymous';
-                document.getElementById('user-id').textContent = userId;
-
-                setupStudentsListener();
-                setupReportsListener();
-                setupSidebarListeners();
-                
-                document.getElementById('report-form').addEventListener('submit', handleSaveReport);
-                document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
-                document.getElementById('print-button').addEventListener('click', generatePrintView);
-
-                await populateMockData();
-                setLoading(false);
-                document.getElementById('status-message').textContent = 'App loaded and connected to the database.';
-
-            } catch (error) {
-                console.error("Error initializing Firebase:", error);
-                document.getElementById('status-message').textContent = `Error: Failed to connect to the database. Reason: ${error.message}. Please check your connection.`;
-                setLoading(false);
-            }
-        };
-
-        window.onload = async () => {
-            setLoading(true, 'Connecting to the database...');
+        window.onload = () => {
+            setLoading(true, 'Initializing...');
             const dateElement = document.getElementById('current-date');
             const today = new Date();
             const options = { year: 'numeric', month: 'long', day: 'numeric' };
             dateElement.textContent = today.toLocaleDateString('en-US', options);
-            await initializeFirebase(providedFirebaseConfig);
+            
+            setupSidebarListeners();
+            renderStudentTable();
+            document.getElementById('report-form').addEventListener('submit', handleSaveReport);
+            document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
+            document.getElementById('print-button').addEventListener('click', generatePrintView);
+            
+            // Set a dummy user ID since there is no Firebase authentication
+            document.getElementById('user-id').textContent = 'standalone-mode';
+            
+            setLoading(false);
+            document.getElementById('status-message').textContent = 'App loaded successfully.';
         };
         
-        // Set up a real-time listener for the 'students' collection
-        const setupStudentsListener = () => {
-            const studentsRef = collection(db, "artifacts", appId, "users", userId, "students");
-            onSnapshot(studentsRef, (querySnapshot) => {
-                students = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                renderStudentTable();
-            }, (error) => {
-                console.error("Error setting up students listener:", error);
-                document.getElementById('status-message').textContent = 'Error: Failed to load student data.';
-            });
-        };
-
-        // Set up a real-time listener for the 'dailyReports' collection
-        const setupReportsListener = () => {
-            const reportsRef = collection(db, "artifacts", appId, "users", userId, "dailyReports");
-            onSnapshot(reportsRef, (querySnapshot) => {
-                querySnapshot.docChanges().forEach((change) => {
-                    const report = { id: change.doc.id, ...change.doc.data() };
-                    if (change.type === "added" || change.type === "modified") {
-                        if (!reportsByStudentId[report.studentId]) {
-                            reportsByStudentId[report.studentId] = {};
-                        }
-                        reportsByStudentId[report.studentId][report.date] = report;
-                    } else if (change.type === "removed") {
-                        if (reportsByStudentId[report.studentId]) {
-                            delete reportsByStudentId[report.studentId][report.date];
-                        }
-                    }
-                });
-                renderStudentTable();
-            }, (error) => {
-                console.error("Error setting up reports listener:", error);
-                document.getElementById('status-message').textContent = 'Error: Failed to load report data.';
-            });
-        };
-
         // Renders the sidebar with level and gender links
         const setupSidebarListeners = () => {
             const sidebar = document.getElementById('sidebar');
@@ -180,7 +115,7 @@
             
             const filteredStudents = currentLevelFilter 
                 ? students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level) 
-                : [];
+                : students;
 
             if (filteredStudents.length === 0) {
                 const message = currentLevelFilter ? `No students found for ${currentLevelFilter.gender}, Level ${currentLevelFilter.level}.` : 'Select a level from the sidebar to view students.';
@@ -247,15 +182,15 @@
             });
         };
 
-        // Handle saving all student reports to Firestore
-        const handleSaveReport = async (event) => {
+        // Handle saving all student reports locally
+        const handleSaveReport = (event) => {
             event.preventDefault();
             const form = event.target;
             const today = new Date().toISOString().slice(0, 10);
             
             const studentsToSave = currentLevelFilter 
                 ? students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level) 
-                : [];
+                : students;
 
             if (studentsToSave.length === 0) {
                 document.getElementById('status-message').textContent = 'No students to save. Please select a level with students first.';
@@ -276,86 +211,45 @@
                         studentId: student.id,
                     };
                     
-                    const existingReport = reportsByStudentId[student.id] && reportsByStudentId[student.id][today];
-
-                    if (existingReport) {
-                        const reportRef = doc(db, "artifacts", appId, "users", userId, "dailyReports", existingReport.id);
-                        await updateDoc(reportRef, report);
-                    } else {
-                        const reportsRef = collection(db, "artifacts", appId, "users", userId, "dailyReports");
-                        await addDoc(reportsRef, report);
+                    if (!reportsByStudentId[student.id]) {
+                        reportsByStudentId[student.id] = {};
                     }
+                    reportsByStudentId[student.id][today] = report;
                 }
                 document.getElementById('status-message').textContent = 'Reports saved successfully!';
             } catch (e) {
-                console.error("Error adding document: ", e);
+                console.error("Error saving reports: ", e);
                 document.getElementById('status-message').textContent = 'Error: Could not save reports.';
             }
         };
 
-        // Handle adding a new student to Firestore
-        const handleAddStudent = async (event) => {
+        // Handle adding a new student locally
+        const handleAddStudent = (event) => {
             event.preventDefault();
             const form = event.target;
             const studentData = {
                 name: form.querySelector('[name="studentName"]').value.trim(),
                 gender: form.querySelector('[name="studentGender"]').value,
                 level: form.querySelector('[name="studentLevel"]').value,
+                // Assign a simple, temporary ID
+                id: `s${students.length + 1}`
             };
 
             if (!studentData.name || !studentData.gender || !studentData.level) {
                 document.getElementById('student-add-status').textContent = 'Please fill out all fields.';
                 return;
             }
-
-            try {
-                // Check for existing student with the same name, gender, and level
-                const studentsRef = collection(db, "artifacts", appId, "users", userId, "students");
-                const q = query(studentsRef, 
-                    where("name", "==", studentData.name),
-                    where("gender", "==", studentData.gender),
-                    where("level", "==", studentData.level)
-                );
-                const querySnapshot = await getDocs(q);
-
-                if (!querySnapshot.empty) {
-                    document.getElementById('student-add-status').textContent = 'Error: A student with this name and level already exists.';
-                    return;
-                }
-
-                // If no duplicates are found, add the new student
-                await addDoc(studentsRef, studentData);
-                document.getElementById('student-add-status').textContent = 'Student added successfully!';
-                form.reset();
-            } catch (e) {
-                console.error("Error adding student:", e);
-                document.getElementById('student-add-status').textContent = 'Error adding student.';
+            
+            const isDuplicate = students.some(s => s.name === studentData.name && s.gender === studentData.gender && s.level === studentData.level);
+            if (isDuplicate) {
+                document.getElementById('student-add-status').textContent = 'Error: A student with this name and level already exists.';
+                return;
             }
-        };
 
-        // Add mock data if the students collection is empty
-        const populateMockData = async () => {
-            const studentsRef = collection(db, "artifacts", appId, "users", userId, "students");
-            const studentsDocs = await getDocs(studentsRef);
-            if (studentsDocs.empty) {
-                const mockStudents = [
-                    { name: "Ahmed Khan", gender: "Boys", level: "1A" },
-                    { name: "Zainab Ali", gender: "Girls", level: "1A" },
-                    { name: "Ali Hassan", gender: "Boys", level: "1B" },
-                    { name: "Fatima Noor", gender: "Girls", level: "1B" },
-                    { name: "Umar Farooq", gender: "Boys", level: "1C" },
-                    { name: "Aisha Bibi", gender: "Girls", level: "1C" },
-                    { name: "Yusuf Said", gender: "Boys", level: "2" },
-                    { name: "Maryam Khalid", gender: "Girls", level: "2" },
-                    { name: "Bilal Ahmad", gender: "Boys", level: "3" },
-                    { name: "Sara Latif", gender: "Girls", level: "3" },
-                    { name: "Hamza Rashid", gender: "Boys", level: "4" },
-                    { name: "Hafsa Malik", gender: "Girls", level: "4" },
-                ];
-                for (const student of mockStudents) {
-                    await addDoc(studentsRef, student);
-                }
-            }
+            students.push(studentData);
+            document.getElementById('student-add-status').textContent = 'Student added successfully!';
+            form.reset();
+            renderStudentTable(); // Re-render the table with the new student
         };
 
         // Generate a print-friendly view of the daily reports
@@ -448,8 +342,8 @@
         <!-- Loading message -->
         <div id="loading-message" class="text-lg font-medium text-gray-700 py-4"></div>
         
-        <!-- Main content container, hidden until Firebase is initialized -->
-        <div id="main-content" class="bg-white rounded-xl shadow-lg p-8 w-full hidden">
+        <!-- Main content container, now always visible -->
+        <div id="main-content" class="bg-white rounded-xl shadow-lg p-8 w-full">
             <header class="mb-6 border-b pb-4 flex justify-between items-center">
                 <h1 class="text-3xl font-bold text-gray-900">Daily Student Report</h1>
                 <div class="text-sm text-gray-600">
