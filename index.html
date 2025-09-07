@@ -124,7 +124,6 @@
         const appId = firebaseConfig.projectId;
 
         let db, auth;
-        let userId;
         let students = [];
         let reportsByStudentId = {};
         let currentLevelFilter = null;
@@ -173,10 +172,8 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // Sign in anonymously
+                // Sign in anonymously to get a user, though data is public
                 await signInAnonymously(auth);
-                userId = auth.currentUser.uid;
-                document.getElementById('user-id').textContent = userId;
                 
                 // Set up real-time listeners for students and reports
                 setupListeners();
@@ -200,14 +197,14 @@
         
         const setupListeners = () => {
              // Listener for Students
-            const studentsRef = collection(db, `artifacts/${appId}/users/${userId}/students`);
+            const studentsRef = collection(db, `artifacts/${appId}/public/data/students`);
             onSnapshot(studentsRef, (snapshot) => {
                 students = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderStudentCards();
             });
 
             // Listener for Reports
-            const reportsRef = collection(db, `artifacts/${appId}/users/${userId}/reports`);
+            const reportsRef = collection(db, `artifacts/${appId}/public/data/reports`);
             onSnapshot(reportsRef, (snapshot) => {
                 reportsByStudentId = {};
                 snapshot.docs.forEach(doc => {
@@ -382,7 +379,7 @@
                         studentId: student.id,
                     };
 
-                    const reportsRef = collection(db, `artifacts/${appId}/users/${userId}/reports`);
+                    const reportsRef = collection(db, `artifacts/${appId}/public/data/reports`);
                     const q = query(reportsRef, where("studentId", "==", student.id), where("date", "==", selectedDate));
                     const querySnapshot = await getDocs(q);
 
@@ -429,7 +426,7 @@
             
             try {
                 // Check for duplicates
-                const studentsRef = collection(db, `artifacts/${appId}/users/${userId}/students`);
+                const studentsRef = collection(db, `artifacts/${appId}/public/data/students`);
                 const q = query(studentsRef, where("name", "==", studentData.name), where("gender", "==", studentData.gender), where("level", "==", studentData.level));
                 const querySnapshot = await getDocs(q);
                 
@@ -665,7 +662,6 @@
             <header class="mb-6 border-b pb-4 flex justify-between items-center flex-wrap">
                 <h1 class="text-3xl font-bold text-gray-900 mb-2 lg:mb-0">Daily Student Report</h1>
                 <div class="text-sm text-gray-600">
-                    <p><strong>User ID:</strong> <span id="user-id" class="font-mono text-xs text-gray-500"></span></p>
                     <div class="flex items-center space-x-2">
                         <span><strong>Date:</strong></span>
                         <input type="date" id="date-input" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
