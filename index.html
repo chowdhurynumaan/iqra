@@ -128,6 +128,7 @@
         let students = [];
         let reportsByStudentId = {};
         let currentLevelFilter = null;
+        let selectedDate = new Date().toISOString().slice(0, 10);
 
         const levels = ['1A', '1B', '1C', '2', '3', '4'];
         const genders = ['Boys', 'Girls'];
@@ -145,12 +146,26 @@
             }
         };
 
+        const toggleSidebar = () => {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('open');
+        };
+
+        const getPreviousDate = (dateString) => {
+            const date = new Date(dateString);
+            date.setDate(date.getDate() - 1);
+            return date.toISOString().slice(0, 10);
+        };
+
         window.onload = async () => {
             setLoading(true, 'Initializing...');
-            const dateElement = document.getElementById('current-date');
-            const today = new Date();
-            const options = { year: 'numeric', month: 'long', day: 'numeric' };
-            dateElement.textContent = today.toLocaleDateString('en-US', options);
+            const dateInput = document.getElementById('date-input');
+            dateInput.value = selectedDate;
+            
+            dateInput.addEventListener('change', (event) => {
+                selectedDate = event.target.value;
+                renderStudentCards();
+            });
 
             try {
                 // Initialize Firebase
@@ -182,7 +197,7 @@
                 setLoading(false);
             }
         };
-
+        
         const setupListeners = () => {
              // Listener for Students
             const studentsRef = collection(db, `artifacts/${appId}/users/${userId}/students`);
@@ -206,11 +221,6 @@
             });
         };
         
-        const toggleSidebar = () => {
-            const sidebar = document.getElementById('sidebar');
-            sidebar.classList.toggle('open');
-        };
-
         const setupSidebarListeners = () => {
             const sidebar = document.getElementById('sidebar-links');
             sidebar.innerHTML = '';
@@ -246,7 +256,7 @@
                 sidebar.appendChild(genderSection);
             });
         };
-
+        
         const renderStudentCards = () => {
             const cardsContainer = document.getElementById('report-cards-container');
             const addStudentContainer = document.getElementById('add-student-container');
@@ -261,7 +271,8 @@
             addStudentContainer.classList.remove('hidden');
 
             const today = new Date().toISOString().slice(0, 10);
-            
+            const isPastDate = new Date(selectedDate) < new Date(today);
+
             const filteredStudents = students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level);
 
             if (filteredStudents.length === 0) {
@@ -269,8 +280,25 @@
                 return;
             }
 
+            const isSaveButtonEnabled = !isPastDate;
+            const saveButton = document.getElementById('save-report-button');
+            if (saveButton) {
+                saveButton.disabled = !isSaveButtonEnabled;
+                if (isSaveButtonEnabled) {
+                    saveButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                } else {
+                    saveButton.classList.add('opacity-50', 'cursor-not-allowed');
+                }
+            }
+            
+            const previousDate = getPreviousDate(selectedDate);
+            
             filteredStudents.forEach(student => {
-                const report = reportsByStudentId[student.id] && reportsByStudentId[student.id][today] ? reportsByStudentId[student.id][today] : {};
+                const todayReport = reportsByStudentId[student.id]?.[selectedDate] || {};
+                const previousReport = reportsByStudentId[student.id]?.[previousDate] || {};
+
+                const readOnlyAttribute = isPastDate ? 'readonly' : '';
+                const disabledAttribute = isPastDate ? 'disabled' : '';
 
                 const card = document.createElement('div');
                 card.className = 'bg-gray-50 p-6 rounded-lg shadow-sm mb-4';
@@ -280,38 +308,38 @@
                     <div class="space-y-4">
                         <div class="flex flex-col">
                             <label class="block text-sm font-medium text-gray-700">Last Day's Lesson</label>
-                            <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1" name="lastLesson" data-student-id="${student.id}" value="${report.lastLesson || ''}" placeholder="Last Day's Lesson">
+                            <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1 bg-gray-200" name="lastLesson" data-student-id="${student.id}" value="${previousReport.todayLesson || 'N/A'}" readonly>
                         </div>
                         <div class="flex flex-col">
                             <label class="block text-sm font-medium text-gray-700">Last Day's Homework</label>
-                            <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1" name="lastHomework" data-student-id="${student.id}" value="${report.lastHomework || ''}" placeholder="Last Day's Homework">
+                            <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1 bg-gray-200" name="lastHomework" data-student-id="${student.id}" value="${previousReport.homeworkNotes || 'N/A'}" readonly>
                         </div>
                         <div class="flex items-center">
-                            <input type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" name="homeworkCompleted" data-student-id="${student.id}" ${report.homeworkCompleted ? 'checked' : ''}>
+                            <input type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" name="homeworkCompleted" data-student-id="${student.id}" ${todayReport.homeworkCompleted ? 'checked' : ''} ${disabledAttribute}>
                             <label for="homeworkCompleted" class="ml-2 block text-sm font-medium text-gray-700">Homework Completed?</label>
                         </div>
                         <div class="flex flex-col">
                             <label class="block text-sm font-medium text-gray-700">Today's Lesson</label>
-                            <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1" name="todayLesson" data-student-id="${student.id}" value="${report.todayLesson || ''}" placeholder="Today's Lesson">
+                            <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1" name="todayLesson" data-student-id="${student.id}" value="${todayReport.todayLesson || ''}" placeholder="Today's Lesson" ${readOnlyAttribute}>
                         </div>
                         <div class="flex flex-col">
                             <label class="block text-sm font-medium text-gray-700">Homework Notes</label>
-                            <textarea class="w-full border-gray-300 rounded-md p-2 mt-1 resize-y" name="homeworkNotes" data-student-id="${student.id}" placeholder="Homework Notes">${report.homeworkNotes || ''}</textarea>
+                            <textarea class="w-full border-gray-300 rounded-md p-2 mt-1 resize-y" name="homeworkNotes" data-student-id="${student.id}" placeholder="Homework Notes" ${readOnlyAttribute}>${todayReport.homeworkNotes || ''}</textarea>
                         </div>
                         <div class="flex flex-col">
                             <label class="block text-sm font-medium text-gray-700">Behavior Rating</label>
-                            <div class="flex items-center mt-1" data-student-id="${student.id}" data-type="behavior">
-                                ${[1, 2, 3, 4, 5].map(i => `<span class="text-gray-400 cursor-pointer text-2xl leading-none ${report.behavior >= i ? 'text-yellow-400' : ''}" data-value="${i}">&#9733;</span>`).join('')}
+                            <div class="flex items-center mt-1 ${isPastDate ? '' : 'cursor-pointer'}" data-student-id="${student.id}" data-type="behavior" data-disabled="${isPastDate}">
+                                ${[1, 2, 3, 4, 5].map(i => `<span class="text-gray-400 text-2xl leading-none ${todayReport.behavior >= i ? 'text-yellow-400' : ''}" data-value="${i}">&#9733;</span>`).join('')}
                             </div>
                         </div>
                         <!-- Hidden input to store the behavior rating value -->
-                        <input type="hidden" name="behavior" data-student-id="${student.id}" value="${report.behavior || 0}">
+                        <input type="hidden" name="behavior" data-student-id="${student.id}" value="${todayReport.behavior || 0}">
                     </div>
                 `;
                 cardsContainer.appendChild(card);
             });
 
-            document.querySelectorAll('.flex[data-type="behavior"] span').forEach(star => {
+            document.querySelectorAll('.flex[data-type="behavior"][data-disabled="false"] span').forEach(star => {
                 star.addEventListener('click', (event) => {
                     const studentId = event.target.closest('[data-student-id]').dataset.studentId;
                     const value = parseInt(event.target.dataset.value);
@@ -331,7 +359,6 @@
         const handleSaveReport = async (event) => {
             event.preventDefault();
             const form = event.target;
-            const today = new Date().toISOString().slice(0, 10);
             
             const studentsToSave = currentLevelFilter 
                 ? students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level) 
@@ -345,7 +372,7 @@
             try {
                 for (const student of studentsToSave) {
                     const report = {
-                        date: today,
+                        date: selectedDate,
                         lastLesson: form.querySelector(`input[name="lastLesson"][data-student-id="${student.id}"]`)?.value || '',
                         lastHomework: form.querySelector(`input[name="lastHomework"][data-student-id="${student.id}"]`)?.value || '',
                         homeworkCompleted: form.querySelector(`input[name="homeworkCompleted"][data-student-id="${student.id}"]`)?.checked || false,
@@ -356,7 +383,7 @@
                     };
 
                     const reportsRef = collection(db, `artifacts/${appId}/users/${userId}/reports`);
-                    const q = query(reportsRef, where("studentId", "==", student.id), where("date", "==", today));
+                    const q = query(reportsRef, where("studentId", "==", student.id), where("date", "==", selectedDate));
                     const querySnapshot = await getDocs(q);
 
                     if (querySnapshot.empty) {
@@ -372,7 +399,7 @@
                     if (!reportsByStudentId[student.id]) {
                         reportsByStudentId[student.id] = {};
                     }
-                    reportsByStudentId[student.id][today] = report;
+                    reportsByStudentId[student.id][selectedDate] = report;
                 }
                 document.getElementById('status-message').textContent = 'Reports saved successfully!';
             } catch (e) {
@@ -423,11 +450,16 @@
 
         const generatePrintView = () => {
             const printWindow = window.open('', '_blank');
-            const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
             
             const studentsToPrint = currentLevelFilter 
                 ? students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level) 
                 : students;
+
+            const formatDateForPrint = (dateString) => {
+                const date = new Date(dateString);
+                const options = { year: 'numeric', month: 'long', day: 'numeric' };
+                return date.toLocaleDateString('en-US', options);
+            };
 
             let printContent = `
                 <html>
@@ -531,20 +563,21 @@
                 // First report on the page
                 const student1 = studentsToPrint[i];
                 if (student1) {
-                    const report1 = reportsByStudentId[student1.id] && reportsByStudentId[student1.id][new Date().toISOString().slice(0, 10)] || {};
+                    const report1 = reportsByStudentId[student1.id] && reportsByStudentId[student1.id][selectedDate] || {};
+                    const previousReport1 = reportsByStudentId[student1.id]?.[getPreviousDate(selectedDate)] || {};
                     printContent += `
                         <div class="report-card">
                             <div class="report-header">Daily Student Report</div>
                             <div class="report-info">
                                 <div><strong>Name:</strong> ${student1.name}</div>
-                                <div><strong>Date:</strong> ${today}</div>
+                                <div><strong>Date:</strong> ${formatDateForPrint(selectedDate)}</div>
                             </div>
                             <div class="report-grid">
                                 <div class="grid-item"><strong>Level:</strong> ${student1.level || 'N/A'}</div>
                                 <div class="grid-item"><strong>Gender:</strong> ${student1.gender || 'N/A'}</div>
-                                <div class="grid-item"><strong>Last Day's Lesson:</strong> ${report1.lastLesson || 'N/A'}</div>
+                                <div class="grid-item"><strong>Last Day's Lesson:</strong> ${previousReport1.todayLesson || 'N/A'}</div>
                                 <div class="grid-item"><strong>Today's Lesson:</strong> ${report1.todayLesson || 'N/A'}</div>
-                                <div class="grid-item"><strong>Last Day's Homework:</strong> ${report1.lastHomework || 'N/A'}</div>
+                                <div class="grid-item"><strong>Last Day's Homework:</strong> ${previousReport1.homeworkNotes || 'N/A'}</div>
                                 <div class="grid-item"><strong>Homework Completed?:</strong> ${report1.homeworkCompleted ? 'Yes' : 'No'}</div>
                                 <div class="grid-item"><strong>Notes:</strong> ${report1.homeworkNotes || 'N/A'}</div>
                                 <div class="grid-item"><strong>Behavior:</strong> <span class="stars">${'★'.repeat(report1.behavior || 0)}${'☆'.repeat(5 - (report1.behavior || 0))}</span></div>
@@ -562,20 +595,21 @@
                 // Second report on the page
                 const student2 = studentsToPrint[i + 1];
                 if (student2) {
-                    const report2 = reportsByStudentId[student2.id] && reportsByStudentId[student2.id][new Date().toISOString().slice(0, 10)] || {};
+                    const report2 = reportsByStudentId[student2.id] && reportsByStudentId[student2.id][selectedDate] || {};
+                    const previousReport2 = reportsByStudentId[student2.id]?.[getPreviousDate(selectedDate)] || {};
                     printContent += `
                         <div class="report-card">
                             <div class="report-header">Daily Student Report</div>
                             <div class="report-info">
                                 <div><strong>Name:</strong> ${student2.name}</div>
-                                <div><strong>Date:</strong> ${today}</div>
+                                <div><strong>Date:</strong> ${formatDateForPrint(selectedDate)}</div>
                             </div>
                             <div class="report-grid">
                                 <div class="grid-item"><strong>Level:</strong> ${student2.level || 'N/A'}</div>
                                 <div class="grid-item"><strong>Gender:</strong> ${student2.gender || 'N/A'}</div>
-                                <div class="grid-item"><strong>Last Day's Lesson:</strong> ${report2.lastLesson || 'N/A'}</div>
+                                <div class="grid-item"><strong>Last Day's Lesson:</strong> ${previousReport2.todayLesson || 'N/A'}</div>
                                 <div class="grid-item"><strong>Today's Lesson:</strong> ${report2.todayLesson || 'N/A'}</div>
-                                <div class="grid-item"><strong>Last Day's Homework:</strong> ${report2.lastHomework || 'N/A'}</div>
+                                <div class="grid-item"><strong>Last Day's Homework:</strong> ${previousReport2.homeworkNotes || 'N/A'}</div>
                                 <div class="grid-item"><strong>Homework Completed?:</strong> ${report2.homeworkCompleted ? 'Yes' : 'No'}</div>
                                 <div class="grid-item"><strong>Notes:</strong> ${report2.homeworkNotes || 'N/A'}</div>
                                 <div class="grid-item"><strong>Behavior:</strong> <span class="stars">${'★'.repeat(report2.behavior || 0)}${'☆'.repeat(5 - (report2.behavior || 0))}</span></div>
@@ -632,7 +666,10 @@
                 <h1 class="text-3xl font-bold text-gray-900 mb-2 lg:mb-0">Daily Student Report</h1>
                 <div class="text-sm text-gray-600">
                     <p><strong>User ID:</strong> <span id="user-id" class="font-mono text-xs text-gray-500"></span></p>
-                    <p><strong>Date:</strong> <span id="current-date"></span></p>
+                    <div class="flex items-center space-x-2">
+                        <span><strong>Date:</strong></span>
+                        <input type="date" id="date-input" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    </div>
                 </div>
             </header>
             
@@ -664,7 +701,7 @@
 
                 <div class="flex items-center justify-between mt-4 flex-wrap">
                     <div>
-                        <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 mb-2 sm:mb-0">
+                        <button type="submit" id="save-report-button" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 mb-2 sm:mb-0">
                             Save Report
                         </button>
                         <button type="button" id="print-button" class="ml-0 sm:ml-3 inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
