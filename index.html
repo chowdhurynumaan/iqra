@@ -12,9 +12,9 @@
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         setLogLevel('debug'); // Enable debug logging for Firestore
 
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        console.log('Parsed firebaseConfig:', firebaseConfig);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : firebaseConfig.projectId;
+        const providedFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        console.log('Provided firebaseConfig:', providedFirebaseConfig);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : providedFirebaseConfig.projectId || 'default-app-id';
 
         let db, auth;
         let userId;
@@ -38,16 +38,9 @@
             }
         };
 
-        window.onload = async () => {
-            setLoading(true, 'Connecting to the database...');
-            
+        const initializeFirebase = async (config) => {
             try {
-                // Check if the firebaseConfig object is empty, which indicates a missing environment variable.
-                if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.projectId) {
-                    throw new Error("Firebase configuration is not available or is empty.");
-                }
-
-                const app = initializeApp(firebaseConfig);
+                const app = initializeApp(config);
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
@@ -69,10 +62,42 @@
 
                 await populateMockData();
                 setLoading(false); // Hide loading on success
+                document.getElementById('status-message').textContent = ''; // Clear status message on success
 
             } catch (error) {
                 console.error("Error initializing Firebase:", error);
                 document.getElementById('loading-message').textContent = `Error: Failed to connect to the database. Reason: ${error.message}. Please check your connection.`;
+                document.getElementById('firebase-config-input-section').classList.remove('hidden');
+            }
+        };
+
+        const handleManualConnect = () => {
+            const manualConfigInput = document.getElementById('manual-firebase-config');
+            try {
+                const manualConfig = JSON.parse(manualConfigInput.value);
+                setLoading(true, 'Connecting with manual configuration...');
+                initializeFirebase(manualConfig);
+            } catch (error) {
+                document.getElementById('manual-config-status').textContent = 'Invalid JSON format. Please check your configuration.';
+                console.error('Error parsing manual config:', error);
+            }
+        };
+
+        window.onload = async () => {
+            setLoading(true, 'Connecting to the database...');
+            const dateElement = document.getElementById('current-date');
+            const today = new Date();
+            const options = { year: 'numeric', month: 'long', day: 'numeric' };
+            dateElement.textContent = today.toLocaleDateString('en-US', options);
+
+            // Check if firebaseConfig is available, if not, show manual input
+            if (Object.keys(providedFirebaseConfig).length === 0 || !providedFirebaseConfig.projectId) {
+                setLoading(false);
+                document.getElementById('firebase-config-input-section').classList.remove('hidden');
+                document.getElementById('loading-message').textContent = "Firebase configuration is not available. Please paste it below to connect.";
+                document.getElementById('connect-button').addEventListener('click', handleManualConnect);
+            } else {
+                await initializeFirebase(providedFirebaseConfig);
             }
         };
         
@@ -424,6 +449,20 @@
                 <p><strong>Date:</strong> <span id="current-date"></span></p>
             </div>
         </header>
+
+        <div id="firebase-config-input-section" class="mb-8 p-6 bg-red-50 rounded-lg shadow-sm hidden">
+            <h2 class="text-xl font-bold text-red-800 mb-2">Manual Configuration Required</h2>
+            <p class="text-sm text-red-600 mb-4">
+                Firebase credentials were not found. Please paste your Firebase configuration JSON below to connect to the database.
+            </p>
+            <textarea id="manual-firebase-config" class="w-full h-32 p-2 border border-red-300 rounded-md shadow-sm resize-none focus:border-red-500 focus:ring-red-500 sm:text-sm" placeholder="Paste your Firebase config JSON here..."></textarea>
+            <div class="flex items-center justify-between mt-4">
+                <button id="connect-button" type="button" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                    Connect
+                </button>
+                <div id="manual-config-status" class="text-sm text-red-600"></div>
+            </div>
+        </div>
         
         <div class="mb-8 p-6 bg-gray-50 rounded-lg shadow-sm">
             <h2 class="text-xl font-bold text-gray-800 mb-4">Add a New Student</h2>
@@ -494,12 +533,3 @@
 
 </body>
 </html>
-
-<script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const dateElement = document.getElementById('current-date');
-        const today = new Date();
-        const options = { year: 'numeric', month: 'long', day: 'numeric' };
-        dateElement.textContent = today.toLocaleDateString('en-US', options);
-    });
-</script>
