@@ -287,23 +287,77 @@
                 <head>
                     <title>Student Daily Reports</title>
                     <style>
-                        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-                        .report-card { width: 8.5in; height: 5.5in; box-sizing: border-box; padding: 0.5in; border-bottom: 2px dashed #ccc; }
-                        .report-card:nth-child(2n) { page-break-after: always; }
-                        .report-card:last-of-type { border-bottom: none; }
-                        .report-header { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
-                        .report-info { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 10px; }
-                        .report-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px; line-height: 1.5; }
-                        .grid-item { border-bottom: 1px dashed #000; padding-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-                        .grid-item strong { font-weight: bold; }
-                        .signature-block { margin-top: 20px; border-top: 1px solid #000; padding-top: 5px; font-size: 12px; }
-                        .stars { color: #f8d748; font-size: 16px; line-height: 1; }
+                        @page {
+                            size: letter;
+                            margin: 0;
+                        }
+                        body {
+                            font-family: Arial, sans-serif;
+                            margin: 0;
+                            padding: 0;
+                            display: flex;
+                            flex-wrap: wrap;
+                            justify-content: center;
+                            align-items: center;
+                            height: 11in;
+                            width: 8.5in;
+                        }
+                        .page-section {
+                            width: 8.5in;
+                            height: 5.5in;
+                            box-sizing: border-box;
+                            padding: 0.5in;
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: center;
+                        }
+                        .report-header {
+                            text-align: center;
+                            font-size: 18px;
+                            font-weight: bold;
+                            margin-bottom: 10px;
+                        }
+                        .report-info {
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 12px;
+                            margin-bottom: 10px;
+                        }
+                        .report-grid {
+                            display: grid;
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: 10px;
+                            font-size: 12px;
+                            line-height: 1.5;
+                        }
+                        .grid-item {
+                            border-bottom: 1px solid #000;
+                            padding-bottom: 3px;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                        }
+                        .grid-item strong {
+                            font-weight: bold;
+                        }
+                        .signature-block {
+                            margin-top: 20px;
+                            border-top: 1px solid #000;
+                            padding-top: 5px;
+                            font-size: 12px;
+                        }
+                        .stars {
+                            color: #f8d748;
+                            font-size: 16px;
+                            line-height: 1;
+                        }
                         @media print {
-                            .no-print { display: none; }
-                            html, body { width: 8.5in; height: 11in; margin: 0; padding: 0; }
-                            .report-card { width: 8.5in; height: 5.5in; box-sizing: border-box; padding: 0.5in; border-bottom: 2px dashed #000; }
-                            .report-card:nth-child(2n) { page-break-after: always; }
-                            .report-card:last-of-type { border-bottom: none; page-break-after: avoid; }
+                           body {
+                                page-break-after: always;
+                           }
+                           .page-section:nth-child(2n) {
+                                page-break-before: always;
+                            }
                         }
                     </style>
                 </head>
@@ -314,7 +368,7 @@
                 const report = reportsByStudentId[student.id] && reportsByStudentId[student.id][new Date().toISOString().slice(0, 10)] || {};
                 
                 printContent += `
-                    <div class="report-card">
+                    <div class="page-section">
                         <div class="report-header">Daily Student Report</div>
                         <div class="report-info">
                             <div><strong>Name:</strong> ${student.name}</div>
