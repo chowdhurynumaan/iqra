@@ -5,23 +5,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Daily Report</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .sidebar {
+            width: 250px;
+            flex-shrink: 0;
+            background-color: #f3f4f6;
+        }
+        .main-content {
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+    </style>
     <script type="module">
         // Firebase imports
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, onSnapshot, doc, updateDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, onSnapshot, doc, updateDoc, setLogLevel, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // Enable debug logging for Firestore
         setLogLevel('debug'); 
 
-        // Global variables provided by the Canvas environment
+        // Use environment variables for Firebase configuration
         const providedFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const appId = typeof __app_id !== 'undefined' ? __app_id : providedFirebaseConfig.projectId || 'default-app-id';
-
+        
         let db, auth;
         let userId;
         let students = [];
         let reportsByStudentId = {};
+        let currentLevelFilter = null;
+
+        const levels = ['1A', '1B', '1C', '2', '3', '4'];
+        const genders = ['Boys', 'Girls'];
 
         // Function to show and hide the loading indicator
         const setLoading = (isLoading, message = '') => {
@@ -47,28 +62,28 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                // Sign in with the provided custom token or anonymously if not available
-                if (typeof __initial_auth_token !== 'undefined') {
-                    await signInWithCustomToken(auth, __initial_auth_token);
+                // Use the provided custom auth token to sign in
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
                 } else {
                     await signInAnonymously(auth);
                 }
 
-                userId = auth.currentUser?.uid || crypto.randomUUID();
+                // Set userId to the authenticated user's UID
+                userId = auth.currentUser?.uid || 'anonymous';
                 document.getElementById('user-id').textContent = userId;
 
-                // Set up real-time listeners for students and daily reports
                 setupStudentsListener();
                 setupReportsListener();
+                setupSidebarListeners();
                 
-                // Add event listeners for form submissions and buttons
                 document.getElementById('report-form').addEventListener('submit', handleSaveReport);
                 document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
                 document.getElementById('print-button').addEventListener('click', generatePrintView);
 
-                // Populate mock data if no students exist to provide a starting point
                 await populateMockData();
-                setLoading(false); // Hide loading on success
+                setLoading(false);
                 document.getElementById('status-message').textContent = 'App loaded and connected to the database.';
 
             } catch (error) {
@@ -78,7 +93,6 @@
             }
         };
 
-        // Initialize the app on window load
         window.onload = async () => {
             setLoading(true, 'Connecting to the database...');
             const dateElement = document.getElementById('current-date');
@@ -92,7 +106,6 @@
         const setupStudentsListener = () => {
             const studentsRef = collection(db, "artifacts", appId, "users", userId, "students");
             onSnapshot(studentsRef, (querySnapshot) => {
-                // Update the local students array with the latest data
                 students = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderStudentTable();
             }, (error) => {
@@ -105,14 +118,12 @@
         const setupReportsListener = () => {
             const reportsRef = collection(db, "artifacts", appId, "users", userId, "dailyReports");
             onSnapshot(reportsRef, (querySnapshot) => {
-                // Process document changes (added, modified, removed)
                 querySnapshot.docChanges().forEach((change) => {
                     const report = { id: change.doc.id, ...change.doc.data() };
                     if (change.type === "added" || change.type === "modified") {
                         if (!reportsByStudentId[report.studentId]) {
                             reportsByStudentId[report.studentId] = {};
                         }
-                        // Store reports keyed by studentId and date
                         reportsByStudentId[report.studentId][report.date] = report;
                     } else if (change.type === "removed") {
                         if (reportsByStudentId[report.studentId]) {
@@ -127,27 +138,64 @@
             });
         };
 
-        // Render the student table with input fields for daily reports
+        // Renders the sidebar with level and gender links
+        const setupSidebarListeners = () => {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.innerHTML = '';
+
+            genders.forEach(gender => {
+                const genderSection = document.createElement('div');
+                genderSection.className = 'mb-6';
+                genderSection.innerHTML = `<h3 class="text-lg font-bold text-gray-800 mb-2">${gender}</h3>`;
+                
+                const levelsList = document.createElement('div');
+                levelsList.className = 'space-y-2';
+
+                levels.forEach(level => {
+                    const levelButton = document.createElement('button');
+                    levelButton.textContent = `Level ${level}`;
+                    levelButton.className = 'w-full text-left py-2 px-4 rounded-lg transition-colors duration-200';
+                    levelButton.dataset.gender = gender;
+                    levelButton.dataset.level = level;
+                    
+                    levelButton.addEventListener('click', () => {
+                        currentLevelFilter = { gender, level };
+                        document.querySelectorAll('#sidebar button').forEach(btn => btn.classList.remove('bg-indigo-200', 'text-indigo-800'));
+                        levelButton.classList.add('bg-indigo-200', 'text-indigo-800');
+                        renderStudentTable();
+                    });
+                    levelsList.appendChild(levelButton);
+                });
+
+                genderSection.appendChild(levelsList);
+                sidebar.appendChild(genderSection);
+            });
+        };
+
+        // Render the student table with input fields based on the current filter
         const renderStudentTable = () => {
             const tbody = document.getElementById('report-body');
             tbody.innerHTML = '';
             const today = new Date().toISOString().slice(0, 10);
+            
+            const filteredStudents = currentLevelFilter 
+                ? students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level) 
+                : [];
 
-            if (students.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="11" class="text-center text-gray-500 py-4">No students found. Add students to get started.</td></tr>';
+            if (filteredStudents.length === 0) {
+                const message = currentLevelFilter ? `No students found for ${currentLevelFilter.gender}, Level ${currentLevelFilter.level}.` : 'Select a level from the sidebar to view students.';
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 py-4">${message}</td></tr>`;
                 return;
             }
 
-            students.forEach(student => {
-                // Get the report for today if it exists, otherwise use an empty object
+            filteredStudents.forEach(student => {
                 const report = reportsByStudentId[student.id] && reportsByStudentId[student.id][today] ? reportsByStudentId[student.id][today] : {};
 
                 const row = document.createElement('tr');
                 row.className = 'hover:bg-gray-50';
                 row.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${student.RG}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${student.LN}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${student.RN}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${student.gender}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${student.level}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${student.name}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <input type="text" class="w-full border-gray-300 rounded-md p-2" name="lastLesson" data-student-id="${student.id}" value="${report.lastLesson || ''}" placeholder="Last Day's Lesson">
@@ -160,9 +208,6 @@
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <input type="text" class="w-full border-gray-300 rounded-md p-2" name="todayLesson" data-student-id="${student.id}" value="${report.todayLesson || ''}" placeholder="Today's Lesson">
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <input type="text" class="w-full border-gray-300 rounded-md p-2" name="nextLesson" data-student-id="${student.id}" value="${report.nextLesson || ''}" placeholder="Next Day's Lesson">
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <input type="text" class="w-full border-gray-300 rounded-md p-2" name="homeworkNotes" data-student-id="${student.id}" value="${report.homeworkNotes || ''}" placeholder="Homework Notes">
@@ -189,7 +234,6 @@
                             s.classList.remove('text-yellow-400');
                         }
                     });
-                    // Create a hidden input to store the star rating value
                     let hiddenInput = document.querySelector(`input[name="behavior"][data-student-id="${studentId}"]`);
                     if (!hiddenInput) {
                         hiddenInput = document.createElement('input');
@@ -209,8 +253,17 @@
             const form = event.target;
             const today = new Date().toISOString().slice(0, 10);
             
+            const studentsToSave = currentLevelFilter 
+                ? students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level) 
+                : [];
+
+            if (studentsToSave.length === 0) {
+                document.getElementById('status-message').textContent = 'No students to save. Please select a level with students first.';
+                return;
+            }
+
             try {
-                for (const student of students) {
+                for (const student of studentsToSave) {
                     const report = {
                         date: today,
                         lastLesson: form.querySelector(`input[name="lastLesson"][data-student-id="${student.id}"]`)?.value || '',
@@ -225,7 +278,6 @@
                     
                     const existingReport = reportsByStudentId[student.id] && reportsByStudentId[student.id][today];
 
-                    // Check if a report for today already exists to decide between update or add
                     if (existingReport) {
                         const reportRef = doc(db, "artifacts", appId, "users", userId, "dailyReports", existingReport.id);
                         await updateDoc(reportRef, report);
@@ -246,20 +298,32 @@
             event.preventDefault();
             const form = event.target;
             const studentData = {
-                name: form.querySelector('[name="studentName"]').value,
-                RG: form.querySelector('[name="studentRG"]').value,
-                LN: form.querySelector('[name="studentLN"]').value,
-                RN: form.querySelector('[name="studentRN"]').value,
+                name: form.querySelector('[name="studentName"]').value.trim(),
+                gender: form.querySelector('[name="studentGender"]').value,
+                level: form.querySelector('[name="studentLevel"]').value,
             };
 
-            // Basic validation
-            if (!studentData.name || !studentData.RG || !studentData.LN || !studentData.RN) {
+            if (!studentData.name || !studentData.gender || !studentData.level) {
                 document.getElementById('student-add-status').textContent = 'Please fill out all fields.';
                 return;
             }
 
             try {
+                // Check for existing student with the same name, gender, and level
                 const studentsRef = collection(db, "artifacts", appId, "users", userId, "students");
+                const q = query(studentsRef, 
+                    where("name", "==", studentData.name),
+                    where("gender", "==", studentData.gender),
+                    where("level", "==", studentData.level)
+                );
+                const querySnapshot = await getDocs(q);
+
+                if (!querySnapshot.empty) {
+                    document.getElementById('student-add-status').textContent = 'Error: A student with this name and level already exists.';
+                    return;
+                }
+
+                // If no duplicates are found, add the new student
                 await addDoc(studentsRef, studentData);
                 document.getElementById('student-add-status').textContent = 'Student added successfully!';
                 form.reset();
@@ -275,26 +339,18 @@
             const studentsDocs = await getDocs(studentsRef);
             if (studentsDocs.empty) {
                 const mockStudents = [
-                    { name: "John Doe", RG: "A1", LN: "1", RN: "01" },
-                    { name: "Jane Smith", RG: "A2", LN: "2", RN: "02" },
-                    { name: "Peter Jones", RG: "B1", LN: "3", RN: "03" },
-                    { name: "Mary Williams", RG: "B2", LN: "4", RN: "04" },
-                    { name: "Chris Evans", RG: "C1", LN: "5", RN: "05" },
-                    { name: "Emily Blunt", RG: "C2", LN: "6", RN: "06" },
-                    { name: "Mark Ruffalo", RG: "D1", LN: "7", RN: "07" },
-                    { name: "Scarlett Johansson", RG: "D2", LN: "8", RN: "08" },
-                    { name: "Robert Downey Jr.", RG: "E1", LN: "9", RN: "09" },
-                    { name: "Gwyneth Paltrow", RG: "E2", LN: "10", RN: "10" },
-                    { name: "Tom Holland", RG: "F1", LN: "11", RN: "11" },
-                    { name: "Zendaya", RG: "F2", LN: "12", RN: "12" },
-                    { name: "Benedict Cumberbatch", RG: "G1", LN: "13", RN: "13" },
-                    { name: "Elizabeth Olsen", RG: "G2", LN: "14", RN: "14" },
-                    { name: "Paul Rudd", RG: "H1", LN: "15", RN: "15" },
-                    { name: "Evangeline Lilly", RG: "H2", LN: "16", RN: "16" },
-                    { name: "Chris Pratt", RG: "I1", LN: "17", RN: "17" },
-                    { name: "Zoe Saldana", RG: "I2", LN: "18", RN: "18" },
-                    { name: "Dave Bautista", RG: "J1", LN: "19", RN: "19" },
-                    { name: "Vin Diesel", RG: "J2", LN: "20", RN: "20" },
+                    { name: "Ahmed Khan", gender: "Boys", level: "1A" },
+                    { name: "Zainab Ali", gender: "Girls", level: "1A" },
+                    { name: "Ali Hassan", gender: "Boys", level: "1B" },
+                    { name: "Fatima Noor", gender: "Girls", level: "1B" },
+                    { name: "Umar Farooq", gender: "Boys", level: "1C" },
+                    { name: "Aisha Bibi", gender: "Girls", level: "1C" },
+                    { name: "Yusuf Said", gender: "Boys", level: "2" },
+                    { name: "Maryam Khalid", gender: "Girls", level: "2" },
+                    { name: "Bilal Ahmad", gender: "Boys", level: "3" },
+                    { name: "Sara Latif", gender: "Girls", level: "3" },
+                    { name: "Hamza Rashid", gender: "Boys", level: "4" },
+                    { name: "Hafsa Malik", gender: "Girls", level: "4" },
                 ];
                 for (const student of mockStudents) {
                     await addDoc(studentsRef, student);
@@ -307,101 +363,39 @@
             const printWindow = window.open('', '_blank');
             const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
             
+            const studentsToPrint = currentLevelFilter 
+                ? students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level) 
+                : students;
+
             let printContent = `
                 <html>
                 <head>
                     <title>Student Daily Reports</title>
                     <style>
-                        body {
-                            font-family: Arial, sans-serif;
-                            margin: 0;
-                            padding: 0;
-                        }
-                        .report-card {
-                            width: 8.5in;
-                            height: 5.5in;
-                            box-sizing: border-box;
-                            padding: 0.5in;
-                            border-bottom: 2px dashed #ccc;
-                        }
-                        .report-card:nth-child(2n) {
-                            page-break-after: always;
-                        }
-                        .report-card:last-of-type {
-                            border-bottom: none;
-                        }
-                        .report-header {
-                            text-align: center;
-                            font-size: 18px;
-                            font-weight: bold;
-                            margin-bottom: 10px;
-                        }
-                        .report-info {
-                            display: flex;
-                            justify-content: space-between;
-                            font-size: 12px;
-                            margin-bottom: 10px;
-                        }
-                        .report-grid {
-                            display: grid;
-                            grid-template-columns: repeat(2, 1fr);
-                            gap: 10px;
-                            font-size: 12px;
-                            line-height: 1.5;
-                        }
-                        .grid-item {
-                            border-bottom: 1px dashed #000;
-                            padding-bottom: 3px;
-                            white-space: nowrap;
-                            overflow: hidden;
-                            text-overflow: ellipsis;
-                        }
-                        .grid-item strong {
-                            font-weight: bold;
-                        }
-                        .signature-block {
-                            margin-top: 20px;
-                            border-top: 1px solid #000;
-                            padding-top: 5px;
-                            font-size: 12px;
-                        }
-                        .stars {
-                            color: #f8d748;
-                            font-size: 16px;
-                            line-height: 1;
-                        }
+                        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+                        .report-card { width: 8.5in; height: 5.5in; box-sizing: border-box; padding: 0.5in; border-bottom: 2px dashed #ccc; }
+                        .report-card:nth-child(2n) { page-break-after: always; }
+                        .report-card:last-of-type { border-bottom: none; }
+                        .report-header { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+                        .report-info { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 10px; }
+                        .report-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px; line-height: 1.5; }
+                        .grid-item { border-bottom: 1px dashed #000; padding-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                        .grid-item strong { font-weight: bold; }
+                        .signature-block { margin-top: 20px; border-top: 1px solid #000; padding-top: 5px; font-size: 12px; }
+                        .stars { color: #f8d748; font-size: 16px; line-height: 1; }
                         @media print {
-                            .no-print {
-                                display: none;
-                            }
-                            html, body {
-                                width: 8.5in;
-                                height: 11in;
-                                margin: 0;
-                                padding: 0;
-                            }
-                            .report-card {
-                                width: 8.5in;
-                                height: 5.5in;
-                                box-sizing: border-box;
-                                padding: 0.5in;
-                                border-bottom: 2px dashed #000;
-                            }
-                            .report-card:nth-child(2n) {
-                                page-break-after: always;
-                            }
-                            .report-card:last-of-type {
-                                border-bottom: none;
-                                page-break-after: avoid;
-                            }
+                            .no-print { display: none; }
+                            html, body { width: 8.5in; height: 11in; margin: 0; padding: 0; }
+                            .report-card { width: 8.5in; height: 5.5in; box-sizing: border-box; padding: 0.5in; border-bottom: 2px dashed #000; }
+                            .report-card:nth-child(2n) { page-break-after: always; }
+                            .report-card:last-of-type { border-bottom: none; page-break-after: avoid; }
                         }
                     </style>
                 </head>
                 <body>
             `;
 
-            // Loop through each student to create a report card
-            for (const student of students) {
+            for (const student of studentsToPrint) {
                 const report = reportsByStudentId[student.id] && reportsByStudentId[student.id][new Date().toISOString().slice(0, 10)] || {};
                 
                 printContent += `
@@ -412,6 +406,8 @@
                             <div><strong>Date:</strong> ${today}</div>
                         </div>
                         <div class="report-grid">
+                            <div class="grid-item"><strong>Level:</strong> ${student.level || 'N/A'}</div>
+                            <div class="grid-item"><strong>Gender:</strong> ${student.gender || 'N/A'}</div>
                             <div class="grid-item"><strong>Last Day's Lesson:</strong> ${report.lastLesson || 'N/A'}</div>
                             <div class="grid-item"><strong>Today's Lesson:</strong> ${report.todayLesson || 'N/A'}</div>
                             <div class="grid-item"><strong>Last Day's Homework:</strong> ${report.lastHomework || 'N/A'}</div>
@@ -436,9 +432,19 @@
         };
     </script>
 </head>
-<body class="bg-gray-100 font-sans antialiased text-gray-800 p-4 min-h-screen flex flex-col items-center justify-center">
+<body class="bg-gray-100 font-sans antialiased text-gray-800 p-4 min-h-screen flex flex-row">
 
-    <div class="w-full max-w-7xl flex flex-col items-center justify-center">
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar bg-white p-6 shadow-lg rounded-xl flex flex-col items-center">
+        <div class="flex-shrink-0">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6">Levels</h2>
+        </div>
+        <div id="sidebar" class="flex-grow w-full">
+            <!-- Level links will be populated here by JavaScript -->
+        </div>
+    </nav>
+
+    <div class="main-content w-full max-w-7xl flex flex-col items-center justify-center ml-8">
         <!-- Loading message -->
         <div id="loading-message" class="text-lg font-medium text-gray-700 py-4"></div>
         
@@ -457,25 +463,35 @@
                 <h2 class="text-xl font-bold text-gray-800 mb-4">Add a New Student</h2>
                 <form id="add-student-form" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div>
-                        <label for="studentRG" class="block text-sm font-medium text-gray-700">RG</label>
-                        <input type="text" name="studentRG" id="studentRG" placeholder="e.g., A1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
-                    </div>
-                    <div>
-                        <label for="studentLN" class="block text-sm font-medium text-gray-700">LN</label>
-                        <input type="text" name="studentLN" id="studentLN" placeholder="e.g., 1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
-                    </div>
-                    <div>
-                        <label for="studentRN" class="block text-sm font-medium text-gray-700">RN</label>
-                        <input type="text" name="studentRN" id="studentRN" placeholder="e.g., 01" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
-                    </div>
-                    <div>
                         <label for="studentName" class="block text-sm font-medium text-gray-700">Student Name</label>
                         <input type="text" name="studentName" id="studentName" placeholder="e.g., John Doe" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
                     </div>
-                    <div class="md:col-span-2 lg:col-span-4 flex items-center justify-between mt-2">
+                    <div>
+                        <label for="studentGender" class="block text-sm font-medium text-gray-700">Gender</label>
+                        <select name="studentGender" id="studentGender" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                            <option value="">Select Gender</option>
+                            <option value="Boys">Boys</option>
+                            <option value="Girls">Girls</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="studentLevel" class="block text-sm font-medium text-gray-700">Level</label>
+                        <select name="studentLevel" id="studentLevel" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                            <option value="">Select Level</option>
+                            <option value="1A">1A</option>
+                            <option value="1B">1B</option>
+                            <option value="1C">1C</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                        </select>
+                    </div>
+                    <div class="md:col-span-2 lg:col-span-1 flex items-end justify-start mt-2">
                         <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
                             Add Student
                         </button>
+                    </div>
+                    <div class="md:col-span-2 lg:col-span-4 flex items-center justify-start mt-2">
                         <div id="student-add-status" class="text-sm text-gray-600"></div>
                     </div>
                 </form>
@@ -488,15 +504,13 @@
                     <table class="min-w-full divide-y divide-gray-300">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RG</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">LN</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RN</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Day's Lesson</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Day's Homework</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Homework<br>Completed?</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Today's Lesson</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Next Day's Lesson</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Homework Notes</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Behavior</th>
                             </tr>
