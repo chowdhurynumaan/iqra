@@ -12,7 +12,8 @@
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         setLogLevel('debug'); // Enable debug logging for Firestore
 
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const __firebase_config = typeof window.__firebase_config !== 'undefined' ? window.__firebase_config : '{}';
+        const firebaseConfig = JSON.parse(__firebase_config);
         const appId = typeof __app_id !== 'undefined' ? __app_id : firebaseConfig.projectId;
 
         let db, auth;
@@ -41,8 +42,9 @@
             setLoading(true, 'Connecting to the database...');
             
             try {
-                if (Object.keys(firebaseConfig).length === 0) {
-                    throw new Error("Firebase configuration is not available.");
+                // Check if the firebaseConfig object is empty, which indicates a missing environment variable.
+                if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.projectId) {
+                    throw new Error("Firebase configuration is not available or is empty.");
                 }
 
                 const app = initializeApp(firebaseConfig);
