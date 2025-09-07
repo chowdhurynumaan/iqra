@@ -12,9 +12,21 @@
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         setLogLevel('debug'); // Enable debug logging for Firestore
 
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // IMPORTANT: To run this file on GitHub, you must paste your Firebase project's config below.
+        // 1. Go to your Firebase project console.
+        // 2. Click the "Web" icon to add a web app.
+        // 3. Copy the "firebaseConfig" object and paste it here, replacing the empty object.
+        const firebaseConfig = {
+            apiKey: "AIzaSyB7R5IvpXcP1WDwT56iiJC9gY9MC50IbI4",
+            authDomain: "iqra-c90c8.firebaseapp.com",
+            projectId: "iqra-c90c8",
+            storageBucket: "iqra-c90c8.firebasestorage.app",
+            messagingSenderId: "168152895999",
+            appId: "1:168152895999:web:2beefec5e3cc3b40bf17ca",
+            measurementId: "G-0WB3HH0C5H"
+        };
+        
+        const appId = typeof __app_id !== 'undefined' ? __app_id : firebaseConfig.projectId;
 
         let db, auth;
         let userId;
@@ -26,11 +38,14 @@
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
+                
+                // Use the provided custom auth token for this environment.
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
                     await signInAnonymously(auth);
                 }
+
                 userId = auth.currentUser?.uid || crypto.randomUUID();
                 document.getElementById('user-id').textContent = userId;
 
@@ -42,11 +57,11 @@
                 document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
                 document.getElementById('print-button').addEventListener('click', generatePrintView);
 
-                // Populate mock data if the database is empty (no longer calling loadStudents)
+                // Populate mock data if the database is empty
                 populateMockData();
             } catch (error) {
                 console.error("Error initializing Firebase:", error);
-                document.getElementById('status-message').textContent = 'Error: Failed to connect to the database.';
+                document.getElementById('status-message').textContent = 'Error: Failed to connect to the database. Please check your Firebase configuration.';
             }
         };
         
