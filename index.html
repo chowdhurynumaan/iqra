@@ -1,32 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Daily Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .sidebar {
+            width: 250px;
+            flex-shrink: 0;
+            background-color: #f3f4f6;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease-in-out;
+            z-index: 50;
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100%;
+            overflow-y: auto;
+        }
+        .sidebar.open {
+            transform: translateX(0);
+        }
+        @media (min-width: 1024px) {
+            .sidebar {
+                position: static;
+                transform: translateX(0);
+            }
+            .menu-button {
+                display: none;
+            }
+        }
+        .main-content {
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        .student-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        @media print {
+            body { margin: 0; padding: 0; }
+            .no-print { display: none; }
+            .print-page {
+                width: 8.5in;
+                height: 11in;
+                display: flex;
+                flex-direction: column;
+                box-sizing: border-box;
+                padding: 0.2in 0.5in;
+                page-break-after: always;
+            }
+            .report-card {
+                width: 100%;
+                box-sizing: border-box;
+                position: relative;
+                padding: 0.5in;
+                flex-grow: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: flex-start;
+            }
+            .report-card.single { min-height: 50%; }
+            .report-header { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+            .report-info { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 10px; }
+            .report-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px; line-height: 1.5; }
+            .grid-item { border-bottom: 1px solid #000; padding-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .grid-item strong { font-weight: bold; }
+            .signature-block { margin-top: 20px; border-top: 1px solid #000; padding-top: 5px; font-size: 12px; }
+            .stars { color: #f8d748; font-size: 16px; line-height: 1; }
+            .dotted-line { width: 100%; border-top: 2px dotted #000; margin: 10px 0; }
+        }
+    </style>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, doc, getDocs, setDoc, query, where, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyAhwh9LCBqAHjVjOS4f-20ItigVGZ1IL6I",
+            authDomain: "student-report-app-ce17c.firebaseapp.com",
+            projectId: "student-report-app-ce17c",
+            storageBucket: "student-report-app-ce17c.firebasestorage.app",
+            messagingSenderId: "214194844418",
+            appId: "1:214194844418:web:0b801925ad25891816481b"
+        };
+        const appId = firebaseConfig.projectId;
+
+        let db, auth;
+        let students = [];
+        let reportsByStudentId = {};
+        let currentLevelFilter = null;
+        let currentTeacher = null;
+        let unsubscribeStudents = null;
+        let unsubscribeReports = null;
+        let unsubscribeTeacher = null;
+        let selectedDate = new Date().toISOString().slice(0, 10);
+        let selectedStudent = null;
+
+        const levels = ['1A', '1B', '1C', '2', '3', '4', 'Kindergarten'];
+        const gradesMap = {
+            'Kindergarten': '1A',
+            '1st Grade': '1B',
+            '2nd Grade': '1C',
+            '3rd Grade': '2',
+            '4th Grade': '3',
+            '5th Grade': '4'
+        };
+        const genders = ['Boys', 'Girls'];
+
+        const setLoading = (isLoading, message = '') => {
+            const loadingMessageElement = document.getElementById('loading-message');
+            const mainContent = document.getElementById('main-app-content');
+            
+            if (isLoading) {
+                loadingMessageElement.textContent = message;
+                if (mainContent) {
+                    mainContent.classList.add('hidden');
+                }
+            } else {
+                loadingMessageElement.textContent = '';
+                if (mainContent) {
+                    mainContent.classList.remove('hidden');
+                }
+            }
+        };
+
+        const toggleSidebar = () => {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('open');
+        };
+        
+        const showMainContent = () => {
+            document.getElementById('admin-panel').classList.add('hidden');
+            document.getElementById('main-app-content').classList.remove('hidden');
+            document.querySelectorAll('#sidebar-links button, #admin-link').forEach(btn => btn.classList.remove('bg-indigo-200', 'text-indigo-800'));
+            if (currentLevelFilter) {
+                const btn = document.querySelector(`[data-level="${currentLevelFilter.level}"][data-gender="${currentLevelFilter.gender}"]`);
+                if (btn) btn.classList.add('bg-indigo-200', 'text-indigo-800');
+            }
+        };
+
+        const showAdminContent = () => {
+            document.getElementById('admin-panel').classList.remove('hidden');
+            document.getElementById('main-app-content').classList.add('hidden');
+            document.querySelectorAll('#sidebar-links button, #admin-link').forEach(btn => btn.classList.remove('bg-indigo-200', 'text-indigo-800'));
+            document.getElementById('admin-link').classList.add('bg-indigo-200', 'text-indigo-800');
+        };
+
+        const getPreviousDate = (dateString) => {
+            const date = new Date(dateString);
+            date.setDate(date.getDate() - 1);
+            return date.toISOString().slice(0, 10);
+        };
+
+        window.onload = async () => {
+            setLoading(true, 'Initializing...');
+            const dateInput = document.getElementById('date-input');
+            dateInput.value = selectedDate;
+            
+            dateInput.addEventListener('change', (event) => {
+                selectedDate = event.target.value;
+                if (currentLevelFilter) {
+                    loadLevelData(currentLevelFilter.gender, currentLevelFilter.level);
+                }
+            });
+
+            document.getElementById('save-report-button').addEventListener('click', handleSaveReport);
+            document.getElementById('cancel-report-button').addEventListener('click', hideReportModal);
+            document.getElementById('close-report-modal').addEventListener('click', hideReportModal);
+            document.getElementById('add-student-form').addEventListener('submit', handleAddStudent);
+            document.getElementById('print-button').addEventListener('click', generatePrintView);
+            document.getElementById('menu-button').addEventListener('click', toggleSidebar);
+            document.getElementById('close-sidebar').addEventListener('click', toggleSidebar);
+            document.getElementById('export-button').addEventListener('click', handleExportCSV);
+            
+            document.getElementById('admin-link').addEventListener('click', () => {
+                showAdminContent();
+                if (window.innerWidth < 1024) {
+                    toggleSidebar();
+                }
+            });
+
+            document.getElementById('upload-csv-btn').addEventListener('click', handleCSVUpload);
+
+            try {
+                // Initialize Firebase
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // Sign in anonymously to get a user, though data is public
+                await signInAnonymously(auth);
+                
+                setupSidebarListeners();
+                
+                // Initial load of reports
+                onSnapshot(collection(db, `artifacts/${appId}/public/data/reports`), (snapshot) => {
+                    reportsByStudentId = {};
+                    snapshot.docs.forEach(doc => {
+                        const report = doc.data();
+                        if (!reportsByStudentId[report.studentId]) {
+                            reportsByStudentId[report.studentId] = {};
+                        }
+                        reportsByStudentId[report.studentId][report.date] = report;
+                    });
+                });
+                
+                setLoading(false);
+                document.getElementById('status-message').textContent = 'App loaded successfully.';
+
+            } catch (error) {
+                console.error("Error initializing Firebase or fetching data:", error);
+                document.getElementById('status-message').textContent = 'Error initializing app. Check console for details.';
+                setLoading(false);
+            }
+        };
+        
+        const setupSidebarListeners = () => {
+            const sidebar = document.getElementById('sidebar-links');
+            sidebar.innerHTML = '';
+
+            genders.forEach(gender => {
+                const genderSection = document.createElement('div');
+                genderSection.className = 'mb-6';
+                genderSection.innerHTML = `<h3 class="text-lg font-bold text-gray-800 mb-2">${gender}</h3>`;
+                
+                const levelsList = document.createElement('div');
+                levelsList.className = 'space-y-2';
+
+                levels.forEach(level => {
+                    const levelButton = document.createElement('button');
+                    levelButton.textContent = `Level ${level}`;
+                    levelButton.className = 'w-full text-left py-2 px-4 rounded-lg transition-colors duration-200';
+                    levelButton.dataset.gender = gender;
+                    levelButton.dataset.level = level;
+                    
+                    levelButton.addEventListener('click', () => {
+                        currentLevelFilter = { gender, level };
+                        showMainContent();
+                        loadLevelData(gender, level);
+                        if (window.innerWidth < 1024) {
+                            toggleSidebar();
+                        }
+                    });
+                    levelsList.appendChild(levelButton);
+                });
+
+                genderSection.appendChild(levelsList);
+                sidebar.appendChild(genderSection);
+            });
+        };
+
+        const loadLevelData = (gender, level) => {
+            setLoading(true, `Loading data for Level ${level}, ${gender}...`);
+            
+            // Unsubscribe from previous listeners
+            if (unsubscribeStudents) unsubscribeStudents();
+            if (unsubscribeTeacher) unsubscribeTeacher();
+
+            // Set up a listener for students
+            const studentsRef = collection(db, `artifacts/${appId}/public/data/students`);
+            const studentsQuery = query(studentsRef, where("gender", "==", gender), where("level", "==", level));
+            unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
+                students = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderLevelContent();
+            });
+
+            // Set up a listener for the teacher
+            const teacherDocRef = doc(db, `artifacts/${appId}/public/data/teachers`, `${level}-${gender}`);
+            unsubscribeTeacher = onSnapshot(teacherDocRef, (doc) => {
+                currentTeacher = doc.exists() ? doc.data().name : '';
+                renderLevelContent();
+            });
+
+            setLoading(false);
+        };
+        
+        const renderLevelContent = () => {
+            const teacherNameContainer = document.getElementById('teacher-name-container');
+            const listContainer = document.getElementById('student-list-container');
+            const addStudentContainer = document.getElementById('add-student-container');
+            const header = document.getElementById('main-header');
+            
+            header.textContent = `Level ${currentLevelFilter.level} (${currentLevelFilter.gender})`;
+            listContainer.innerHTML = '';
+            
+            // Render Teacher Name section
+            teacherNameContainer.classList.remove('hidden');
+            teacherNameContainer.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <h2 class="text-xl font-semibold text-gray-700">Teacher:</h2>
+                    <p id="teacher-name-display" class="text-xl text-indigo-700 font-bold">${currentTeacher || 'N/A'}</p>
+                    <input type="text" id="edit-teacher-input" value="${currentTeacher || ''}" placeholder="Enter teacher name" class="hidden p-1 rounded-md border-gray-300 w-48 text-sm">
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button class="edit-teacher-btn text-indigo-500 hover:text-indigo-700 p-1" title="Edit Teacher Name">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                    </button>
+                    <button class="save-teacher-btn hidden text-green-500 hover:text-green-700 p-1" title="Save Teacher Name">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </button>
+                    <button class="cancel-teacher-btn hidden text-gray-500 hover:text-gray-700 p-1" title="Cancel Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            `;
+            
+            document.querySelector('.edit-teacher-btn').addEventListener('click', () => {
+                document.getElementById('teacher-name-display').classList.add('hidden');
+                document.getElementById('edit-teacher-input').classList.remove('hidden');
+                document.querySelector('.edit-teacher-btn').classList.add('hidden');
+                document.querySelector('.save-teacher-btn').classList.remove('hidden');
+                document.querySelector('.cancel-teacher-btn').classList.remove('hidden');
+                document.getElementById('edit-teacher-input').focus();
+            });
+
+            document.querySelector('.cancel-teacher-btn').addEventListener('click', () => {
+                document.getElementById('teacher-name-display').classList.remove('hidden');
+                document.getElementById('edit-teacher-input').classList.add('hidden');
+                document.querySelector('.edit-teacher-btn').classList.remove('hidden');
+                document.querySelector('.save-teacher-btn').classList.add('hidden');
+                document.querySelector('.cancel-teacher-btn').classList.add('hidden');
+                document.getElementById('edit-teacher-input').value = currentTeacher || '';
+            });
+
+            document.querySelector('.save-teacher-btn').addEventListener('click', () => {
+                const newName = document.getElementById('edit-teacher-input').value.trim();
+                handleUpdateTeacherName(newName);
+            });
+
+            addStudentContainer.classList.remove('hidden');
+
+            const filteredStudents = students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level);
+            
+            if (filteredStudents.length === 0) {
+                listContainer.innerHTML = `<p class="text-center text-gray-500 py-4">No students found for this class. Use the form below to add one.</p>`;
+                return;
+            }
+
+            filteredStudents.forEach(student => {
+                const studentItem = document.createElement('div');
+                studentItem.className = 'flex justify-between items-center py-4 px-6 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer mb-2';
+                
+                const levelOptions = levels.map(level => `<option value="${level}" ${student.level === level ? 'selected' : ''}>Level ${level}</option>`).join('');
+
+                studentItem.innerHTML = `
+                    <div class="flex items-center space-x-4">
+                        <h3 class="text-xl font-bold text-indigo-700">${student.name}</h3>
+                        <div class="flex items-center space-x-2">
+                            <span class="text-sm text-gray-600">Level:</span>
+                            <select id="level-select-${student.id}" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
+                                ${levelOptions}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-sm text-gray-600">${student.gender}</span>
+                        <button class="delete-student-btn text-red-500 hover:text-red-700 p-1" data-student-id="${student.id}" data-student-name="${student.name}" title="Delete Student">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
+                    </div>
+                `;
+                
+                studentItem.querySelector(`#level-select-${student.id}`).addEventListener('change', (event) => {
+                    const newLevel = event.target.value;
+                    handleUpdateStudentLevel(student.id, newLevel);
+                });
+                
+                // Add click listener to the entire card to show the report modal
+                studentItem.addEventListener('click', (event) => {
+                    if (event.target.closest('.delete-student-btn') || event.target.closest('select')) {
+                        return;
+                    }
+                    selectedStudent = student;
+                    showReportModal(selectedStudent);
+                });
+                
+                listContainer.appendChild(studentItem);
+            });
+
+            document.querySelectorAll('.delete-student-btn').forEach(button => {
+                button.addEventListener('click', (event) => {
+                    const studentId = event.currentTarget.dataset.studentId;
+                    const studentName = event.currentTarget.dataset.studentName;
+                    showDeleteConfirmationModal(studentId, studentName);
+                });
+            });
+        };
+        
+        const handleUpdateStudentLevel = async (studentId, newLevel) => {
+            setLoading(true, 'Updating student level...');
+            try {
+                const studentDocRef = doc(db, `artifacts/${appId}/public/data/students`, studentId);
+                await updateDoc(studentDocRef, { level: newLevel });
+                document.getElementById('status-message').textContent = 'Student level updated successfully!';
+            } catch (e) {
+                console.error("Error updating student level: ", e);
+                document.getElementById('status-message').textContent = 'Error: Could not update student level.';
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const handleUpdateTeacherName = async (newName) => {
+            if (!currentLevelFilter) return;
+
+            setLoading(true, 'Updating teacher name...');
+            try {
+                const teacherDocRef = doc(db, `artifacts/${appId}/public/data/teachers`, `${currentLevelFilter.level}-${currentLevelFilter.gender}`);
+                await setDoc(teacherDocRef, { name: newName }, { merge: true });
+                document.getElementById('status-message').textContent = 'Teacher name updated successfully!';
+            } catch (e) {
+                console.error("Error updating teacher name: ", e);
+                document.getElementById('status-message').textContent = 'Error: Could not update teacher name.';
+            } finally {
+                setLoading(false);
+                document.getElementById('edit-teacher-input').classList.add('hidden');
+                document.querySelector('.save-teacher-btn').classList.add('hidden');
+                document.querySelector('.cancel-teacher-btn').classList.add('hidden');
+                document.getElementById('teacher-name-display').classList.remove('hidden');
+                document.querySelector('.edit-teacher-btn').classList.remove('hidden');
+            }
+        };
+
+        const showReportModal = (student) => {
+            const modal = document.getElementById('report-modal');
+            const studentReportContent = document.getElementById('student-report-content');
+            
+            document.getElementById('report-student-name').textContent = student.name;
+            
+            const today = new Date().toISOString().slice(0, 10);
+            const isPastDate = new Date(selectedDate) < new Date(today);
+            const todayReport = reportsByStudentId[student.id]?.[selectedDate] || {};
+            const previousReport = reportsByStudentId[student.id]?.[getPreviousDate(selectedDate)] || {};
+
+            const readOnlyAttribute = isPastDate ? 'readonly' : '';
+            const disabledAttribute = isPastDate ? 'disabled' : '';
+
+            studentReportContent.innerHTML = `
+                <div class="space-y-4">
+                    <div class="flex flex-col">
+                        <label class="block text-sm font-medium text-gray-700">Last Day's Lesson</label>
+                        <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1 bg-gray-200" name="lastLesson" value="${previousReport.todayLesson || 'N/A'}" readonly>
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="block text-sm font-medium text-gray-700">Last Day's Homework</label>
+                        <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1 bg-gray-200" name="lastHomework" value="${previousReport.homeworkNotes || 'N/A'}" readonly>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" name="homeworkCompleted" ${todayReport.homeworkCompleted ? 'checked' : ''} ${disabledAttribute}>
+                        <label for="homeworkCompleted" class="ml-2 block text-sm font-medium text-gray-700">Homework Completed?</label>
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="block text-sm font-medium text-gray-700">Today's Lesson</label>
+                        <input type="text" class="w-full border-gray-300 rounded-md p-2 mt-1" name="todayLesson" value="${todayReport.todayLesson || ''}" placeholder="Today's Lesson" ${readOnlyAttribute}>
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="block text-sm font-medium text-gray-700">Homework Notes</label>
+                        <textarea class="w-full border-gray-300 rounded-md p-2 mt-1 resize-y" name="homeworkNotes" placeholder="Homework Notes" ${readOnlyAttribute}>${todayReport.homeworkNotes || ''}</textarea>
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="block text-sm font-medium text-gray-700">Behavior Rating</label>
+                        <div class="flex items-center mt-1 ${isPastDate ? '' : 'cursor-pointer'}" data-type="behavior" data-disabled="${isPastDate}">
+                            ${[1, 2, 3, 4, 5].map(i => `<span class="text-gray-400 text-2xl leading-none ${todayReport.behavior >= i ? 'text-yellow-400' : ''}" data-value="${i}">&#9733;</span>`).join('')}
+                        </div>
+                    </div>
+                    <input type="hidden" name="behavior" value="${todayReport.behavior || 0}">
+                </div>
+            `;
+            
+            document.querySelectorAll('.flex[data-type="behavior"][data-disabled="false"] span').forEach(star => {
+                star.addEventListener('click', (event) => {
+                    const value = parseInt(event.target.dataset.value);
+                    const stars = event.target.parentElement.querySelectorAll('span');
+                    stars.forEach(s => {
+                        if (parseInt(s.dataset.value) <= value) {
+                            s.classList.add('text-yellow-400');
+                        } else {
+                            s.classList.remove('text-yellow-400');
+                        }
+                    });
+                    document.querySelector('input[name="behavior"]').value = value;
+                });
+            });
+
+            const saveButton = document.getElementById('save-report-button');
+            if (saveButton) {
+                saveButton.disabled = isPastDate;
+                if (isPastDate) {
+                    saveButton.classList.add('opacity-50', 'cursor-not-allowed');
+                } else {
+                    saveButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            }
+
+            modal.classList.remove('hidden');
+        };
+
+        const hideReportModal = () => {
+            document.getElementById('report-modal').classList.add('hidden');
+            selectedStudent = null;
+        };
+
+        const showDeleteConfirmationModal = (studentId, studentName) => {
+            const modal = document.getElementById('delete-modal');
+            const studentNameSpan = document.getElementById('student-name-to-delete');
+            const confirmDeleteButton = document.getElementById('confirm-delete-btn');
+            const cancelDeleteButton = document.getElementById('cancel-delete-btn');
+
+            studentNameSpan.textContent = studentName;
+            
+            const handleConfirm = async () => {
+                await handleDeleteStudent(studentId);
+                confirmDeleteButton.removeEventListener('click', handleConfirm);
+                cancelDeleteButton.removeEventListener('click', hideDeleteConfirmationModal);
+            };
+
+            confirmDeleteButton.addEventListener('click', handleConfirm);
+            cancelDeleteButton.addEventListener('click', hideDeleteConfirmationModal);
+            
+            modal.classList.remove('hidden');
+        };
+
+        const hideDeleteConfirmationModal = () => {
+            const modal = document.getElementById('delete-modal');
+            modal.classList.add('hidden');
+        };
+
+        const handleDeleteStudent = async (studentId) => {
+            hideDeleteConfirmationModal();
+            setLoading(true, 'Deleting student and associated reports...');
+            
+            try {
+                const reportsRef = collection(db, `artifacts/${appId}/public/data/reports`);
+                const q = query(reportsRef, where("studentId", "==", studentId));
+                const querySnapshot = await getDocs(q);
+
+                for (const reportDoc of querySnapshot.docs) {
+                    await deleteDoc(doc(db, `artifacts/${appId}/public/data/reports`, reportDoc.id));
+                }
+
+                await deleteDoc(doc(db, `artifacts/${appId}/public/data/students`, studentId));
+
+                document.getElementById('status-message').textContent = 'Student and all reports deleted successfully!';
+                
+            } catch (e) {
+                console.error("Error deleting student: ", e);
+                document.getElementById('status-message').textContent = 'Error: Could not delete student.';
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const handleSaveReport = async (event) => {
+            event.preventDefault();
+            if (!selectedStudent) {
+                document.getElementById('status-message').textContent = 'Please select a student to save a report.';
+                return;
+            }
+
+            const student = selectedStudent;
+            const form = document.getElementById('report-form');
+            
+            try {
+                const report = {
+                    date: selectedDate,
+                    homeworkCompleted: form.querySelector('[name="homeworkCompleted"]').checked || false,
+                    todayLesson: form.querySelector('[name="todayLesson"]').value || '',
+                    homeworkNotes: form.querySelector('[name="homeworkNotes"]').value || '',
+                    behavior: parseInt(form.querySelector('[name="behavior"]').value) || 0,
+                    studentId: student.id,
+                };
+
+                const reportsRef = collection(db, `artifacts/${appId}/public/data/reports`);
+                const q = query(reportsRef, where("studentId", "==", student.id), where("date", "==", selectedDate));
+                const querySnapshot = await getDocs(q);
+
+                if (querySnapshot.empty) {
+                    await addDoc(reportsRef, report);
+                } else {
+                    querySnapshot.docs.forEach(async (doc) => {
+                        await updateDoc(doc.ref, report);
+                    });
+                }
+                
+                hideReportModal();
+                document.getElementById('status-message').textContent = 'Report saved successfully!';
+            } catch (e) {
+                console.error("Error saving reports: ", e);
+                document.getElementById('status-message').textContent = 'Error: Could not save reports.';
+            }
+        };
+
+        const handleAddStudent = async (event) => {
+            event.preventDefault();
+            if (!currentLevelFilter) {
+                document.getElementById('student-add-status').textContent = 'Please select a level first.';
+                return;
+            }
+            const form = event.target;
+            const studentName = form.querySelector('[name="studentName"]').value.trim();
+            const studentData = {
+                name: studentName,
+                gender: currentLevelFilter.gender,
+                level: currentLevelFilter.level,
+            };
+
+            if (!studentData.name) {
+                document.getElementById('student-add-status').textContent = 'Please enter a student name.';
+                return;
+            }
+            
+            try {
+                const studentsRef = collection(db, `artifacts/${appId}/public/data/students`);
+                const q = query(studentsRef, where("name", "==", studentData.name), where("gender", "==", studentData.gender), where("level", "==", studentData.level));
+                const querySnapshot = await getDocs(q);
+                
+                if (!querySnapshot.empty) {
+                    document.getElementById('student-add-status').textContent = 'Error: A student with this name and level already exists.';
+                    return;
+                }
+
+                await addDoc(studentsRef, studentData);
+                document.getElementById('student-add-status').textContent = `Student ${studentName} added successfully to ${currentLevelFilter.gender}, Level ${currentLevelFilter.level}!`;
+                form.reset();
+            } catch (e) {
+                console.error("Error adding student: ", e);
+                document.getElementById('student-add-status').textContent = 'Error: Could not add student.';
+            }
+        };
+
+        const handleCSVUpload = async () => {
+            const fileInput = document.getElementById('csv-file-input');
+            const file = fileInput.files[0];
+            if (!file) {
+                document.getElementById('upload-status').textContent = 'Please select a file to upload.';
+                return;
+            }
+
+            setLoading(true, 'Uploading and processing data...');
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const text = event.target.result;
+                const rows = text.split('\n').map(row => row.trim()).filter(row => row !== '');
+                if (rows.length < 2) {
+                    document.getElementById('upload-status').textContent = 'Error: CSV file is empty or has no data.';
+                    setLoading(false);
+                    return;
+                }
+
+                const headers = rows[0].split(',').map(header => header.trim());
+                const nameIndex = headers.indexOf('Name');
+                const genderIndex = headers.indexOf('Gender');
+                const gradeIndex = headers.indexOf('Grade');
+                const teacherIndex = headers.indexOf('Teacher');
+
+                if (nameIndex === -1 || genderIndex === -1 || gradeIndex === -1 || teacherIndex === -1) {
+                    document.getElementById('upload-status').textContent = 'Error: CSV file is missing required headers (Name, Gender, Grade, Teacher).';
+                    setLoading(false);
+                    return;
+                }
+                
+                let studentsAdded = 0;
+                const studentPromises = [];
+                const teachersToUpdate = {};
+
+                for (let i = 1; i < rows.length; i++) {
+                    const row = rows[i].split(',').map(col => col.trim());
+                    if (row.length <= nameIndex || row.length <= genderIndex || row.length <= gradeIndex || row.length <= teacherIndex) {
+                        console.warn(`Skipping malformed row at index ${i}:`, row);
+                        continue;
+                    }
+                    
+                    const name = row[nameIndex];
+                    const gender = row[genderIndex] === 'M' ? 'Boys' : (row[genderIndex] === 'F' ? 'Girls' : null);
+                    const grade = row[gradeIndex];
+                    const teacher = row[teacherIndex];
+
+                    if (!name || !gender || !grade || !teacher) {
+                        console.warn(`Skipping incomplete student data for row ${i}.`);
+                        continue;
+                    }
+
+                    const level = gradesMap[grade] || grade; // Use mapped level or fallback to grade if not in map
+
+                    // Prepare student data for Firestore
+                    const studentData = { name, gender, level };
+                    
+                    // Prepare teacher data for Firestore (grouping by level and gender)
+                    const teacherKey = `${level}-${gender}`;
+                    if (!teachersToUpdate[teacherKey]) {
+                        teachersToUpdate[teacherKey] = teacher;
+                    }
+
+                    // Check if student already exists before adding
+                    const studentsRef = collection(db, `artifacts/${appId}/public/data/students`);
+                    const q = query(studentsRef, where("name", "==", studentData.name), where("gender", "==", studentData.gender), where("level", "==", studentData.level));
+                    const checkPromise = getDocs(q).then(snapshot => {
+                        if (snapshot.empty) {
+                            return addDoc(studentsRef, studentData).then(() => {
+                                studentsAdded++;
+                            });
+                        }
+                        return Promise.resolve();
+                    });
+                    studentPromises.push(checkPromise);
+                }
+
+                try {
+                    await Promise.all(studentPromises);
+                    
+                    const teacherPromises = [];
+                    for (const key in teachersToUpdate) {
+                        const teacherName = teachersToUpdate[key];
+                        const teacherDocRef = doc(db, `artifacts/${appId}/public/data/teachers`, key);
+                        teacherPromises.push(setDoc(teacherDocRef, { name: teacherName }, { merge: true }));
+                    }
+                    await Promise.all(teacherPromises);
+
+                    document.getElementById('upload-status').textContent = `Successfully processed file. Added ${studentsAdded} new students and updated teacher data.`;
+                } catch (e) {
+                    console.error("Error processing CSV data:", e);
+                    document.getElementById('upload-status').textContent = 'Error processing CSV data. See console for details.';
+                } finally {
+                    setLoading(false);
+                }
+            };
+            reader.readAsText(file);
+        };
+        
+        const handleExportCSV = async () => {
+            setLoading(true, 'Generating CSV file...');
+            try {
+                const studentsRef = collection(db, `artifacts/${appId}/public/data/students`);
+                const allStudentsSnapshot = await getDocs(studentsRef);
+                const allStudents = allStudentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                const teachersRef = collection(db, `artifacts/${appId}/public/data/teachers`);
+                const allTeachersSnapshot = await getDocs(teachersRef);
+                const teachersMap = {};
+                allTeachersSnapshot.docs.forEach(doc => {
+                    teachersMap[doc.id] = doc.data().name;
+                });
+                
+                const reportsRef = collection(db, `artifacts/${appId}/public/data/reports`);
+                const allReportsSnapshot = await getDocs(reportsRef);
+                const reportsByStudentIdAndDate = {};
+                allReportsSnapshot.docs.forEach(doc => {
+                    const report = doc.data();
+                    if (!reportsByStudentIdAndDate[report.studentId]) {
+                        reportsByStudentIdAndDate[report.studentId] = {};
+                    }
+                    reportsByStudentIdAndDate[report.studentId][report.date] = report;
+                });
+
+                const headers = ['Name', 'Gender', 'Level', 'Teacher', 'Today\'s Lesson', 'Homework Completed', 'Homework Notes', 'Behavior'];
+                let csvContent = headers.join(',') + '\n';
+
+                allStudents.forEach(student => {
+                    const teacherKey = `${student.level}-${student.gender}`;
+                    const teacherName = teachersMap[teacherKey] || 'N/A';
+                    
+                    const report = reportsByStudentIdAndDate[student.id]?.[selectedDate] || {};
+                    const row = [
+                        `"${student.name}"`,
+                        `"${student.gender}"`,
+                        `"${student.level}"`,
+                        `"${teacherName}"`,
+                        `"${report.todayLesson || ''}"`,
+                        `"${report.homeworkCompleted ? 'Yes' : 'No'}"`,
+                        `"${report.homeworkNotes || ''}"`,
+                        `"${report.behavior || '0'}"`
+                    ];
+                    csvContent += row.join(',') + '\n';
+                });
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                if (link.download !== undefined) {
+                    const url = URL.createObjectURL(blob);
+                    link.setAttribute("href", url);
+                    link.setAttribute("download", `student_data_${selectedDate}.csv`);
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+                document.getElementById('status-message').textContent = 'CSV file generated and downloaded successfully!';
+
+            } catch (e) {
+                console.error("Error exporting data:", e);
+                document.getElementById('status-message').textContent = 'Error exporting data. See console for details.';
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const generatePrintView = () => {
+            const printWindow = window.open('', '_blank');
+            
+            const studentsToPrint = currentLevelFilter 
+                ? students.filter(s => s.gender === currentLevelFilter.gender && s.level === currentLevelFilter.level) 
+                : students;
+
+            const formatDateForPrint = (dateString) => {
+                const date = new Date(dateString);
+                const options = { year: 'numeric', month: 'long', day: 'numeric' };
+                return date.toLocaleDateString('en-US', options);
+            };
+
+            let printContent = `
+                <html>
+                <head>
+                    <title>Student Daily Reports</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+                        .page-break-after { page-break-after: always; }
+                        .print-page { width: 8.5in; height: 11in; display: flex; flex-direction: column; box-sizing: border-box; padding: 0.2in 0.5in; }
+                        .report-card { width: 100%; box-sizing: border-box; position: relative; padding: 0.5in; flex-grow: 1; display: flex; flex-direction: column; justify-content: flex-start; }
+                        .report-header { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+                        .report-info { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 10px; }
+                        .report-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px; line-height: 1.5; }
+                        .grid-item { border-bottom: 1px solid #000; padding-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                        .grid-item strong { font-weight: bold; }
+                        .signature-block { margin-top: 20px; border-top: 1px solid #000; padding-top: 5px; font-size: 12px; }
+                        .stars { color: #f8d748; font-size: 16px; line-height: 1; }
+                        .dotted-line { width: 100%; border-top: 2px dotted #000; margin: 10px 0; }
+                        @media print { body { margin: 0; padding: 0; } }
+                    </style>
+                </head>
+                <body>
+            `;
+            
+            for (let i = 0; i < studentsToPrint.length; i += 2) {
+                const student1 = studentsToPrint[i];
+                const student2 = studentsToPrint[i + 1];
+
+                if (student2) {
+                    printContent += `<div class="print-page" style="justify-content: space-between;">`;
+                    const report1 = reportsByStudentId[student1.id]?.[selectedDate] || {};
+                    const previousReport1 = reportsByStudentId[student1.id]?.[getPreviousDate(selectedDate)] || {};
+                    printContent += `
+                        <div class="report-card">
+                            <div class="report-header">Daily Student Report</div>
+                            <div class="report-info">
+                                <div><strong>Name:</strong> ${student1.name}</div>
+                                <div><strong>Teacher:</strong> ${currentTeacher || 'N/A'}</div>
+                                <div><strong>Date:</strong> ${formatDateForPrint(selectedDate)}</div>
+                            </div>
+                            <div class="report-grid">
+                                <div class="grid-item"><strong>Level:</strong> ${student1.level || 'N/A'}</div>
+                                <div class="grid-item"><strong>Gender:</strong> ${student1.gender || 'N/A'}</div>
+                                <div class="grid-item"><strong>Last Day's Lesson:</strong> ${previousReport1.todayLesson || 'N/A'}</div>
+                                <div class="grid-item"><strong>Today's Lesson:</strong> ${report1.todayLesson || 'N/A'}</div>
+                                <div class="grid-item"><strong>Last Day's Homework:</strong> ${previousReport1.homeworkNotes || 'N/A'}</div>
+                                <div class="grid-item"><strong>Homework Completed?:</strong> ${report1.homeworkCompleted ? 'Yes' : 'No'}</div>
+                                <div class="grid-item"><strong>Notes:</strong> ${report1.homeworkNotes || 'N/A'}</div>
+                                <div class="grid-item"><strong>Behavior:</strong> <span class="stars">${'★'.repeat(report1.behavior || 0)}${'☆'.repeat(5 - (report1.behavior || 0))}</span></div>
+                            </div>
+                            <div class="signature-block">
+                                <p>Parent's Signature: _________________________</p>
+                            </div>
+                        </div>
+                    `;
+
+                    printContent += `<div class="dotted-line"></div>`;
+                    const report2 = reportsByStudentId[student2.id]?.[selectedDate] || {};
+                    const previousReport2 = reportsByStudentId[student2.id]?.[getPreviousDate(selectedDate)] || {};
+                    printContent += `
+                        <div class="report-card">
+                            <div class="report-header">Daily Student Report</div>
+                            <div class="report-info">
+                                <div><strong>Name:</strong> ${student2.name}</div>
+                                <div><strong>Teacher:</strong> ${currentTeacher || 'N/A'}</div>
+                                <div><strong>Date:</strong> ${formatDateForPrint(selectedDate)}</div>
+                            </div>
+                            <div class="report-grid">
+                                <div class="grid-item"><strong>Level:</strong> ${student2.level || 'N/A'}</div>
+                                <div class="grid-item"><strong>Gender:</strong> ${student2.gender || 'N/A'}</div>
+                                <div class="grid-item"><strong>Last Day's Lesson:</strong> ${previousReport2.todayLesson || 'N/A'}</div>
+                                <div class="grid-item"><strong>Today's Lesson:</strong> ${report2.todayLesson || 'N/A'}</div>
+                                <div class="grid-item"><strong>Last Day's Homework:</strong> ${previousReport2.homeworkNotes || 'N/A'}</div>
+                                <div class="grid-item"><strong>Homework Completed?:</strong> ${report2.homeworkCompleted ? 'Yes' : 'No'}</div>
+                                <div class="grid-item"><strong>Notes:</strong> ${report2.homeworkNotes || 'N/A'}</div>
+                                <div class="grid-item"><strong>Behavior:</strong> <span class="stars">${'★'.repeat(report2.behavior || 0)}${'☆'.repeat(5 - (report2.behavior || 0))}</span></div>
+                            </div>
+                            <div class="signature-block">
+                                <p>Parent's Signature: _________________________</p>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    printContent += `<div class="print-page" style="justify-content: flex-start;">`;
+                    
+                    const report1 = reportsByStudentId[student1.id]?.[selectedDate] || {};
+                    const previousReport1 = reportsByStudentId[student1.id]?.[getPreviousDate(selectedDate)] || {};
+                    printContent += `
+                        <div class="report-card single">
+                            <div class="report-header">Daily Student Report</div>
+                            <div class="report-info">
+                                <div><strong>Name:</strong> ${student1.name}</div>
+                                <div><strong>Teacher:</strong> ${currentTeacher || 'N/A'}</div>
+                                <div><strong>Date:</strong> ${formatDateForPrint(selectedDate)}</div>
+                            </div>
+                            <div class="report-grid">
+                                <div class="grid-item"><strong>Level:</strong> ${student1.level || 'N/A'}</div>
+                                <div class="grid-item"><strong>Gender:</strong> ${student1.gender || 'N/A'}</div>
+                                <div class="grid-item"><strong>Last Day's Lesson:</strong> ${previousReport1.todayLesson || 'N/A'}</div>
+                                <div class="grid-item"><strong>Today's Lesson:</strong> ${report1.todayLesson || 'N/A'}</div>
+                                <div class="grid-item"><strong>Last Day's Homework:</strong> ${previousReport1.homeworkNotes || 'N/A'}</div>
+                                <div class="grid-item"><strong>Homework Completed?:</strong> ${report1.homeworkCompleted ? 'Yes' : 'No'}</div>
+                                <div class="grid-item"><strong>Notes:</strong> ${report1.homeworkNotes || 'N/A'}</div>
+                                <div class="grid-item"><strong>Behavior:</strong> <span class="stars">${'★'.repeat(report1.behavior || 0)}${'☆'.repeat(5 - (report1.behavior || 0))}</span></div>
+                            </div>
+                            <div class="signature-block">
+                                <p>Parent's Signature: _________________________</p>
+                            </div>
+                        </div>
+                    `;
+                }
+                printContent += `</div>`;
+            }
+
+            printContent += `</body></html>`;
+            
+            printWindow.document.write(printContent);
+            printWindow.document.close();
+            printWindow.focus();
+            printWindow.print();
+        };
+    </script>
+</head>
+<body class="bg-gray-100 font-sans antialiased text-gray-800 p-4 min-h-screen flex flex-col lg:flex-row">
+
+    <button id="menu-button" class="lg:hidden fixed top-4 left-4 z-50 p-2 bg-indigo-600 text-white rounded-lg shadow-lg">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" />
+        </svg>
+    </button>
+
+    <nav id="sidebar" class="sidebar lg:static lg:w-250px bg-white p-6 shadow-lg rounded-xl flex flex-col items-center">
+        <div class="w-full flex justify-between items-center mb-6">
+            <h2 class="text-2xl font-bold text-gray-900">Levels</h2>
+            <button id="close-sidebar" class="lg:hidden text-gray-500 hover:text-gray-700">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <div id="sidebar-links" class="flex-grow w-full">
+        </div>
+        <div class="w-full mt-auto">
+            <button id="admin-link" class="w-full text-left py-2 px-4 rounded-lg transition-colors duration-200 hover:bg-indigo-200 hover:text-indigo-800">
+                Admin
+            </button>
+        </div>
+    </nav>
+
+    <div class="main-content w-full max-w-7xl flex flex-col items-center justify-center lg:ml-8">
+        <div id="loading-message" class="text-lg font-medium text-gray-700 py-4"></div>
+        
+        <div id="main-app-content" class="bg-white rounded-xl shadow-lg p-8 w-full">
+            <header class="mb-6 border-b pb-4 flex justify-between items-center flex-wrap">
+                <h1 id="main-header" class="text-3xl font-bold text-gray-900 mb-2 lg:mb-0">Daily Student Report</h1>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <span><strong>Date:</strong></span>
+                        <input type="date" id="date-input" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    </div>
                     <button type="button" id="print-button" class="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                         Print Reports
                     </button>
-
-
-
+                    <button type="button" id="export-button" class="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                        Export Data
+                    </button>
                 </div>
             </header>
             
+            <div id="teacher-name-container" class="flex justify-between items-center mb-6 p-4 bg-blue-50 rounded-lg shadow-sm hidden">
+            </div>
 
+            <div id="add-student-container" class="hidden mb-8 p-6 bg-gray-50 rounded-lg shadow-sm">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Add a New Student</h2>
+                <form id="add-student-form" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div>
+                        <label for="studentName" class="block text-sm font-medium text-gray-700">Student Name</label>
+                        <input type="text" name="studentName" id="studentName" placeholder="e.g., John Doe" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                    </div>
+                    <div class="md:col-span-2 lg:col-span-1 flex items-end justify-start mt-2">
+                        <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                            Add Student
+                        </button>
+                    </div>
+                    <div class="md:col-span-2 lg:col-span-4 flex items-center justify-start mt-2">
+                        <div id="student-add-status" class="text-sm text-gray-600"></div>
+                    </div>
+                </form>
+            </div>
 
-@@ -964,7 +1025,21 @@
+            <div id="student-list-container" class="mb-6 student-list">
             </div>
             
             <div id="status-message" class="text-sm text-gray-600 text-center mt-4"></div>
+        </div>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        <div id="admin-panel" class="bg-white rounded-xl shadow-lg p-8 w-full hidden">
+            <h1 class="text-3xl font-bold text-gray-900 mb-6 border-b pb-4">Admin Panel</h1>
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold text-gray-800 mb-4">Bulk Student & Teacher Upload</h2>
+                <p class="text-gray-600 mb-4">Upload a CSV file containing student and teacher data. The application will automatically parse the data and add it to the database, skipping any existing students.</p>
+                <div class="flex items-center space-x-4">
+                    <input type="file" id="csv-file-input" accept=".csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                    <button id="upload-csv-btn" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Upload
+                    </button>
+                </div>
+                <div id="upload-status" class="text-sm text-gray-600 mt-4"></div>
+            </div>
         </div>
     </div>
+
+    <div id="report-modal" class="modal hidden">
+        <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-xl mx-4 relative">
+            <button id="close-report-modal" class="absolute top-4 right-4 text-gray-500 hover:text-gray-700">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <h2 id="report-student-name" class="text-2xl font-bold text-gray-900 mb-4 border-b pb-2"></h2>
+            <form id="report-form">
+                <div id="student-report-content">
+                </div>
+                <div class="flex justify-between items-center mt-6">
+                    <button type="button" id="cancel-report-button" class="py-2 px-4 rounded-md text-gray-700 bg-gray-200 hover:bg-gray-300 transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit" id="save-report-button" class="py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Save Report
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="delete-modal" class="modal hidden">
+        <div class="bg-white p-8 rounded-lg shadow-xl max-w-sm w-full mx-4">
+            <h3 class="text-xl font-bold text-gray-900 mb-4">Confirm Deletion</h3>
+            <p class="text-gray-700 mb-6">Are you sure you want to permanently delete student <strong id="student-name-to-delete"></strong> and all of their associated reports?</p>
+            <div class="flex justify-end space-x-4">
+                <button id="cancel-delete-btn" class="py-2 px-4 rounded-md text-gray-700 bg-gray-200 hover:bg-gray-300 transition-colors">
+                    Cancel
+                </button>
+                <button id="confirm-delete-btn" class="py-2 px-4 rounded-md text-white bg-red-600 hover:bg-red-700 transition-colors">
+                    Delete Student
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
