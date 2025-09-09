@@ -35,26 +35,16 @@
             flex-grow: 1;
             overflow-y: auto;
         }
-        .modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 100;
-        }
-        .student-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 1rem;
-        }
+
+        /* Print-specific CSS */
         @media print {
-            body { margin: 0; padding: 0; }
-            .no-print { display: none; }
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            .no-print {
+                display: none;
+            }
             .print-page {
                 width: 8.5in;
                 height: 11in;
@@ -74,15 +64,71 @@
                 flex-direction: column;
                 justify-content: flex-start;
             }
-            .report-card.single { min-height: 50%; }
-            .report-header { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
-            .report-info { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 10px; }
-            .report-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px; line-height: 1.5; }
-            .grid-item { border-bottom: 1px solid #000; padding-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .grid-item strong { font-weight: bold; }
-            .signature-block { margin-top: 20px; border-top: 1px solid #000; padding-top: 5px; font-size: 12px; }
-            .stars { color: #f8d748; font-size: 16px; line-height: 1; }
-            .dotted-line { width: 100%; border-top: 2px dotted #000; margin: 10px 0; }
+            .report-card.single {
+                min-height: 50%;
+            }
+            .report-header {
+                text-align: center;
+                font-size: 18px;
+                font-weight: bold;
+                margin-bottom: 10px;
+            }
+            .report-info {
+                display: flex;
+                justify-content: space-between;
+                font-size: 12px;
+                margin-bottom: 10px;
+            }
+            .report-grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+            .grid-item {
+                border-bottom: 1px solid #000;
+                padding-bottom: 3px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .grid-item strong {
+                font-weight: bold;
+            }
+            .signature-block {
+                margin-top: 20px;
+                border-top: 1px solid #000;
+                padding-top: 5px;
+                font-size: 12px;
+            }
+            .stars {
+                color: #f8d748;
+                font-size: 16px;
+                line-height: 1;
+            }
+            .dotted-line {
+                width: 100%;
+                border-top: 2px dotted #000;
+                margin: 10px 0;
+            }
+        }
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        .student-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
         }
     </style>
     <script type="module">
@@ -111,54 +157,25 @@
         let selectedDate = new Date().toISOString().slice(0, 10);
         let selectedStudent = null;
 
-        const levels = ['1A', '1B', '1C', '2', '3', '4', 'Kindergarten'];
-        const gradesMap = {
-            'Kindergarten': '1A',
-            '1st Grade': '1B',
-            '2nd Grade': '1C',
-            '3rd Grade': '2',
-            '4th Grade': '3',
-            '5th Grade': '4'
-        };
+        const levels = ['1A', '1B', '1C', '2', '3', '4'];
         const genders = ['Boys', 'Girls'];
 
         const setLoading = (isLoading, message = '') => {
             const loadingMessageElement = document.getElementById('loading-message');
-            const mainContent = document.getElementById('main-app-content');
+            const mainContent = document.getElementById('main-content');
             
             if (isLoading) {
                 loadingMessageElement.textContent = message;
-                if (mainContent) {
-                    mainContent.classList.add('hidden');
-                }
+                mainContent.classList.add('hidden');
             } else {
                 loadingMessageElement.textContent = '';
-                if (mainContent) {
-                    mainContent.classList.remove('hidden');
-                }
+                mainContent.classList.remove('hidden');
             }
         };
 
         const toggleSidebar = () => {
             const sidebar = document.getElementById('sidebar');
             sidebar.classList.toggle('open');
-        };
-        
-        const showMainContent = () => {
-            document.getElementById('admin-panel').classList.add('hidden');
-            document.getElementById('main-app-content').classList.remove('hidden');
-            document.querySelectorAll('#sidebar-links button, #admin-link').forEach(btn => btn.classList.remove('bg-indigo-200', 'text-indigo-800'));
-            if (currentLevelFilter) {
-                const btn = document.querySelector(`[data-level="${currentLevelFilter.level}"][data-gender="${currentLevelFilter.gender}"]`);
-                if (btn) btn.classList.add('bg-indigo-200', 'text-indigo-800');
-            }
-        };
-
-        const showAdminContent = () => {
-            document.getElementById('admin-panel').classList.remove('hidden');
-            document.getElementById('main-app-content').classList.add('hidden');
-            document.querySelectorAll('#sidebar-links button, #admin-link').forEach(btn => btn.classList.remove('bg-indigo-200', 'text-indigo-800'));
-            document.getElementById('admin-link').classList.add('bg-indigo-200', 'text-indigo-800');
         };
 
         const getPreviousDate = (dateString) => {
@@ -186,16 +203,6 @@
             document.getElementById('print-button').addEventListener('click', generatePrintView);
             document.getElementById('menu-button').addEventListener('click', toggleSidebar);
             document.getElementById('close-sidebar').addEventListener('click', toggleSidebar);
-            document.getElementById('export-button').addEventListener('click', handleExportCSV);
-            
-            document.getElementById('admin-link').addEventListener('click', () => {
-                showAdminContent();
-                if (window.innerWidth < 1024) {
-                    toggleSidebar();
-                }
-            });
-
-            document.getElementById('upload-csv-btn').addEventListener('click', handleCSVUpload);
 
             try {
                 // Initialize Firebase
@@ -251,7 +258,8 @@
                     
                     levelButton.addEventListener('click', () => {
                         currentLevelFilter = { gender, level };
-                        showMainContent();
+                        document.querySelectorAll('#sidebar-links button').forEach(btn => btn.classList.remove('bg-indigo-200', 'text-indigo-800'));
+                        levelButton.classList.add('bg-indigo-200', 'text-indigo-800');
                         loadLevelData(gender, level);
                         if (window.innerWidth < 1024) {
                             toggleSidebar();
@@ -362,20 +370,29 @@
                 const studentItem = document.createElement('div');
                 studentItem.className = 'flex justify-between items-center py-4 px-6 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer mb-2';
                 
-                const levelOptions = levels.map(level => `<option value="${level}" ${student.level === level ? 'selected' : ''}>Level ${level}</option>`).join('');
-
+                // The main content of the card, including the name and action buttons
                 studentItem.innerHTML = `
-                    <div class="flex items-center space-x-4">
-                        <h3 class="text-xl font-bold text-indigo-700">${student.name}</h3>
-                        <div class="flex items-center space-x-2">
-                            <span class="text-sm text-gray-600">Level:</span>
-                            <select id="level-select-${student.id}" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
-                                ${levelOptions}
-                            </select>
-                        </div>
+                    <div class="flex items-center space-x-2">
+                        <h3 id="student-name-${student.id}" class="text-xl font-bold text-indigo-700">${student.name}</h3>
+                        <input type="text" id="edit-name-input-${student.id}" value="${student.name}" class="hidden p-1 rounded-md border-gray-300 w-48 text-sm">
                     </div>
                     <div class="flex items-center space-x-2">
-                        <span class="text-sm text-gray-600">${student.gender}</span>
+                        <span class="text-sm text-gray-600">Level: ${student.level}</span>
+                        <button class="edit-student-btn text-indigo-500 hover:text-indigo-700 p-1" data-student-id="${student.id}" title="Edit Name">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                        </button>
+                        <button class="save-name-btn hidden text-green-500 hover:text-green-700 p-1" data-student-id="${student.id}" title="Save Name">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
+                        </button>
+                        <button class="cancel-edit-btn hidden text-gray-500 hover:text-gray-700 p-1" data-student-id="${student.id}" title="Cancel Edit">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
                         <button class="delete-student-btn text-red-500 hover:text-red-700 p-1" data-student-id="${student.id}" data-student-name="${student.name}" title="Delete Student">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -384,14 +401,9 @@
                     </div>
                 `;
                 
-                studentItem.querySelector(`#level-select-${student.id}`).addEventListener('change', (event) => {
-                    const newLevel = event.target.value;
-                    handleUpdateStudentLevel(student.id, newLevel);
-                });
-                
                 // Add click listener to the entire card to show the report modal
                 studentItem.addEventListener('click', (event) => {
-                    if (event.target.closest('.delete-student-btn') || event.target.closest('select')) {
+                    if (event.target.closest('.delete-student-btn') || event.target.closest('.edit-student-btn') || event.target.closest('.save-name-btn') || event.target.closest('.cancel-edit-btn')) {
                         return;
                     }
                     selectedStudent = student;
@@ -399,6 +411,42 @@
                 });
                 
                 listContainer.appendChild(studentItem);
+                
+                const editBtn = studentItem.querySelector('.edit-student-btn');
+                const saveBtn = studentItem.querySelector('.save-name-btn');
+                const cancelBtn = studentItem.querySelector('.cancel-edit-btn');
+                const studentNameH3 = studentItem.querySelector(`#student-name-${student.id}`);
+                const editNameInput = studentItem.querySelector(`#edit-name-input-${student.id}`);
+
+                editBtn.addEventListener('click', () => {
+                    studentNameH3.classList.add('hidden');
+                    editBtn.classList.add('hidden');
+                    editNameInput.classList.remove('hidden');
+                    saveBtn.classList.remove('hidden');
+                    cancelBtn.classList.remove('hidden');
+                    editNameInput.focus();
+                });
+
+                cancelBtn.addEventListener('click', () => {
+                    editNameInput.classList.add('hidden');
+                    saveBtn.classList.add('hidden');
+                    cancelBtn.classList.add('hidden');
+                    studentNameH3.classList.remove('hidden');
+                    editBtn.classList.remove('hidden');
+                    editNameInput.value = student.name;
+                });
+
+                saveBtn.addEventListener('click', async () => {
+                    const newName = editNameInput.value.trim();
+                    if (newName && newName !== student.name) {
+                        await handleUpdateStudentName(student.id, newName);
+                    }
+                    editNameInput.classList.add('hidden');
+                    saveBtn.classList.add('hidden');
+                    cancelBtn.classList.add('hidden');
+                    studentNameH3.classList.remove('hidden');
+                    editBtn.classList.remove('hidden');
+                });
             });
 
             document.querySelectorAll('.delete-student-btn').forEach(button => {
@@ -410,15 +458,15 @@
             });
         };
         
-        const handleUpdateStudentLevel = async (studentId, newLevel) => {
-            setLoading(true, 'Updating student level...');
+        const handleUpdateStudentName = async (studentId, newName) => {
+            setLoading(true, 'Updating student name...');
             try {
                 const studentDocRef = doc(db, `artifacts/${appId}/public/data/students`, studentId);
-                await updateDoc(studentDocRef, { level: newLevel });
-                document.getElementById('status-message').textContent = 'Student level updated successfully!';
+                await updateDoc(studentDocRef, { name: newName });
+                document.getElementById('status-message').textContent = 'Student name updated successfully!';
             } catch (e) {
-                console.error("Error updating student level: ", e);
-                document.getElementById('status-message').textContent = 'Error: Could not update student level.';
+                console.error("Error updating student name: ", e);
+                document.getElementById('status-message').textContent = 'Error: Could not update student name.';
             } finally {
                 setLoading(false);
             }
@@ -652,173 +700,6 @@
             }
         };
 
-        const handleCSVUpload = async () => {
-            const fileInput = document.getElementById('csv-file-input');
-            const file = fileInput.files[0];
-            if (!file) {
-                document.getElementById('upload-status').textContent = 'Please select a file to upload.';
-                return;
-            }
-
-            setLoading(true, 'Uploading and processing data...');
-
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-                const text = event.target.result;
-                const rows = text.split('\n').map(row => row.trim()).filter(row => row !== '');
-                if (rows.length < 2) {
-                    document.getElementById('upload-status').textContent = 'Error: CSV file is empty or has no data.';
-                    setLoading(false);
-                    return;
-                }
-
-                const headers = rows[0].split(',').map(header => header.trim());
-                const nameIndex = headers.indexOf('Name');
-                const genderIndex = headers.indexOf('Gender');
-                const gradeIndex = headers.indexOf('Grade');
-                const teacherIndex = headers.indexOf('Teacher');
-
-                if (nameIndex === -1 || genderIndex === -1 || gradeIndex === -1 || teacherIndex === -1) {
-                    document.getElementById('upload-status').textContent = 'Error: CSV file is missing required headers (Name, Gender, Grade, Teacher).';
-                    setLoading(false);
-                    return;
-                }
-                
-                let studentsAdded = 0;
-                const studentPromises = [];
-                const teachersToUpdate = {};
-
-                for (let i = 1; i < rows.length; i++) {
-                    const row = rows[i].split(',').map(col => col.trim());
-                    if (row.length <= nameIndex || row.length <= genderIndex || row.length <= gradeIndex || row.length <= teacherIndex) {
-                        console.warn(`Skipping malformed row at index ${i}:`, row);
-                        continue;
-                    }
-                    
-                    const name = row[nameIndex];
-                    const gender = row[genderIndex] === 'M' ? 'Boys' : (row[genderIndex] === 'F' ? 'Girls' : null);
-                    const grade = row[gradeIndex];
-                    const teacher = row[teacherIndex];
-
-                    if (!name || !gender || !grade || !teacher) {
-                        console.warn(`Skipping incomplete student data for row ${i}.`);
-                        continue;
-                    }
-
-                    const level = gradesMap[grade] || grade; // Use mapped level or fallback to grade if not in map
-
-                    // Prepare student data for Firestore
-                    const studentData = { name, gender, level };
-                    
-                    // Prepare teacher data for Firestore (grouping by level and gender)
-                    const teacherKey = `${level}-${gender}`;
-                    if (!teachersToUpdate[teacherKey]) {
-                        teachersToUpdate[teacherKey] = teacher;
-                    }
-
-                    // Check if student already exists before adding
-                    const studentsRef = collection(db, `artifacts/${appId}/public/data/students`);
-                    const q = query(studentsRef, where("name", "==", studentData.name), where("gender", "==", studentData.gender), where("level", "==", studentData.level));
-                    const checkPromise = getDocs(q).then(snapshot => {
-                        if (snapshot.empty) {
-                            return addDoc(studentsRef, studentData).then(() => {
-                                studentsAdded++;
-                            });
-                        }
-                        return Promise.resolve();
-                    });
-                    studentPromises.push(checkPromise);
-                }
-
-                try {
-                    await Promise.all(studentPromises);
-                    
-                    const teacherPromises = [];
-                    for (const key in teachersToUpdate) {
-                        const teacherName = teachersToUpdate[key];
-                        const teacherDocRef = doc(db, `artifacts/${appId}/public/data/teachers`, key);
-                        teacherPromises.push(setDoc(teacherDocRef, { name: teacherName }, { merge: true }));
-                    }
-                    await Promise.all(teacherPromises);
-
-                    document.getElementById('upload-status').textContent = `Successfully processed file. Added ${studentsAdded} new students and updated teacher data.`;
-                } catch (e) {
-                    console.error("Error processing CSV data:", e);
-                    document.getElementById('upload-status').textContent = 'Error processing CSV data. See console for details.';
-                } finally {
-                    setLoading(false);
-                }
-            };
-            reader.readAsText(file);
-        };
-        
-        const handleExportCSV = async () => {
-            setLoading(true, 'Generating CSV file...');
-            try {
-                const studentsRef = collection(db, `artifacts/${appId}/public/data/students`);
-                const allStudentsSnapshot = await getDocs(studentsRef);
-                const allStudents = allStudentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-                const teachersRef = collection(db, `artifacts/${appId}/public/data/teachers`);
-                const allTeachersSnapshot = await getDocs(teachersRef);
-                const teachersMap = {};
-                allTeachersSnapshot.docs.forEach(doc => {
-                    teachersMap[doc.id] = doc.data().name;
-                });
-                
-                const reportsRef = collection(db, `artifacts/${appId}/public/data/reports`);
-                const allReportsSnapshot = await getDocs(reportsRef);
-                const reportsByStudentIdAndDate = {};
-                allReportsSnapshot.docs.forEach(doc => {
-                    const report = doc.data();
-                    if (!reportsByStudentIdAndDate[report.studentId]) {
-                        reportsByStudentIdAndDate[report.studentId] = {};
-                    }
-                    reportsByStudentIdAndDate[report.studentId][report.date] = report;
-                });
-
-                const headers = ['Name', 'Gender', 'Level', 'Teacher', 'Today\'s Lesson', 'Homework Completed', 'Homework Notes', 'Behavior'];
-                let csvContent = headers.join(',') + '\n';
-
-                allStudents.forEach(student => {
-                    const teacherKey = `${student.level}-${student.gender}`;
-                    const teacherName = teachersMap[teacherKey] || 'N/A';
-                    
-                    const report = reportsByStudentIdAndDate[student.id]?.[selectedDate] || {};
-                    const row = [
-                        `"${student.name}"`,
-                        `"${student.gender}"`,
-                        `"${student.level}"`,
-                        `"${teacherName}"`,
-                        `"${report.todayLesson || ''}"`,
-                        `"${report.homeworkCompleted ? 'Yes' : 'No'}"`,
-                        `"${report.homeworkNotes || ''}"`,
-                        `"${report.behavior || '0'}"`
-                    ];
-                    csvContent += row.join(',') + '\n';
-                });
-
-                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                const link = document.createElement("a");
-                if (link.download !== undefined) {
-                    const url = URL.createObjectURL(blob);
-                    link.setAttribute("href", url);
-                    link.setAttribute("download", `student_data_${selectedDate}.csv`);
-                    link.style.visibility = 'hidden';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                }
-                document.getElementById('status-message').textContent = 'CSV file generated and downloaded successfully!';
-
-            } catch (e) {
-                console.error("Error exporting data:", e);
-                document.getElementById('status-message').textContent = 'Error exporting data. See console for details.';
-            } finally {
-                setLoading(false);
-            }
-        };
-
         const generatePrintView = () => {
             const printWindow = window.open('', '_blank');
             
@@ -837,19 +718,83 @@
                 <head>
                     <title>Student Daily Reports</title>
                     <style>
-                        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-                        .page-break-after { page-break-after: always; }
-                        .print-page { width: 8.5in; height: 11in; display: flex; flex-direction: column; box-sizing: border-box; padding: 0.2in 0.5in; }
-                        .report-card { width: 100%; box-sizing: border-box; position: relative; padding: 0.5in; flex-grow: 1; display: flex; flex-direction: column; justify-content: flex-start; }
-                        .report-header { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 10px; }
-                        .report-info { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 10px; }
-                        .report-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px; line-height: 1.5; }
-                        .grid-item { border-bottom: 1px solid #000; padding-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-                        .grid-item strong { font-weight: bold; }
-                        .signature-block { margin-top: 20px; border-top: 1px solid #000; padding-top: 5px; font-size: 12px; }
-                        .stars { color: #f8d748; font-size: 16px; line-height: 1; }
-                        .dotted-line { width: 100%; border-top: 2px dotted #000; margin: 10px 0; }
-                        @media print { body { margin: 0; padding: 0; } }
+                        body {
+                            font-family: Arial, sans-serif;
+                            margin: 0;
+                            padding: 0;
+                        }
+                        .page-break-after {
+                            page-break-after: always;
+                        }
+                        .print-page {
+                            width: 8.5in;
+                            height: 11in;
+                            display: flex;
+                            flex-direction: column;
+                            box-sizing: border-box;
+                            padding: 0.2in 0.5in;
+                        }
+                        .report-card {
+                            width: 100%;
+                            box-sizing: border-box;
+                            position: relative;
+                            padding: 0.5in;
+                            flex-grow: 1;
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: flex-start;
+                        }
+                        .report-header {
+                            text-align: center;
+                            font-size: 18px;
+                            font-weight: bold;
+                            margin-bottom: 10px;
+                        }
+                        .report-info {
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 12px;
+                            margin-bottom: 10px;
+                        }
+                        .report-grid {
+                            display: grid;
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: 10px;
+                            font-size: 12px;
+                            line-height: 1.5;
+                        }
+                        .grid-item {
+                            border-bottom: 1px solid #000;
+                            padding-bottom: 3px;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                        }
+                        .grid-item strong {
+                            font-weight: bold;
+                        }
+                        .signature-block {
+                            margin-top: 20px;
+                            border-top: 1px solid #000;
+                            padding-top: 5px;
+                            font-size: 12px;
+                        }
+                        .stars {
+                            color: #f8d748;
+                            font-size: 16px;
+                            line-height: 1;
+                        }
+                        .dotted-line {
+                            width: 100%;
+                            border-top: 2px dotted #000;
+                            margin: 10px 0;
+                        }
+                        @media print {
+                            body {
+                                margin: 0;
+                                padding: 0;
+                            }
+                        }
                     </style>
                 </head>
                 <body>
@@ -861,6 +806,8 @@
 
                 if (student2) {
                     printContent += `<div class="print-page" style="justify-content: space-between;">`;
+
+                    // Report 1
                     const report1 = reportsByStudentId[student1.id]?.[selectedDate] || {};
                     const previousReport1 = reportsByStudentId[student1.id]?.[getPreviousDate(selectedDate)] || {};
                     printContent += `
@@ -973,17 +920,12 @@
         </div>
         <div id="sidebar-links" class="flex-grow w-full">
         </div>
-        <div class="w-full mt-auto">
-            <button id="admin-link" class="w-full text-left py-2 px-4 rounded-lg transition-colors duration-200 hover:bg-indigo-200 hover:text-indigo-800">
-                Admin
-            </button>
-        </div>
     </nav>
 
     <div class="main-content w-full max-w-7xl flex flex-col items-center justify-center lg:ml-8">
         <div id="loading-message" class="text-lg font-medium text-gray-700 py-4"></div>
         
-        <div id="main-app-content" class="bg-white rounded-xl shadow-lg p-8 w-full">
+        <div id="main-content" class="bg-white rounded-xl shadow-lg p-8 w-full">
             <header class="mb-6 border-b pb-4 flex justify-between items-center flex-wrap">
                 <h1 id="main-header" class="text-3xl font-bold text-gray-900 mb-2 lg:mb-0">Daily Student Report</h1>
                 <div class="flex items-center space-x-4">
@@ -993,9 +935,6 @@
                     </div>
                     <button type="button" id="print-button" class="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                         Print Reports
-                    </button>
-                    <button type="button" id="export-button" class="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
-                        Export Data
                     </button>
                 </div>
             </header>
@@ -1025,21 +964,7 @@
             </div>
             
             <div id="status-message" class="text-sm text-gray-600 text-center mt-4"></div>
-        </div>
 
-        <div id="admin-panel" class="bg-white rounded-xl shadow-lg p-8 w-full hidden">
-            <h1 class="text-3xl font-bold text-gray-900 mb-6 border-b pb-4">Admin Panel</h1>
-            <div class="mb-8">
-                <h2 class="text-xl font-semibold text-gray-800 mb-4">Bulk Student & Teacher Upload</h2>
-                <p class="text-gray-600 mb-4">Upload a CSV file containing student and teacher data. The application will automatically parse the data and add it to the database, skipping any existing students.</p>
-                <div class="flex items-center space-x-4">
-                    <input type="file" id="csv-file-input" accept=".csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
-                    <button id="upload-csv-btn" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                        Upload
-                    </button>
-                </div>
-                <div id="upload-status" class="text-sm text-gray-600 mt-4"></div>
-            </div>
         </div>
     </div>
 
